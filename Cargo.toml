@@ -1,0 +1,18 @@
+[package]
+name = "gearbox"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anarchy = { path = "../anarchy" }
+cell = { path = "../cell" }
+magician-vgpu = { path = "../shader_magician/magician-vgpu" }
+mutual = "1.0.2"
+shaders = { path = "./shaders" }
+
+winit = { version = "0.30", features = ["android-native-activity"] }
+wgpu = "29.0"
+bytemuck = "1.25.0"
+ahash = "0.8.12"
+derive_more = "2.1.1"
+anyhow = "1.0.102"
