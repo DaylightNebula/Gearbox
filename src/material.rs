@@ -3,7 +3,7 @@ use std::{any::{Any, TypeId}, sync::OnceLock};
 use ahash::AHashMap;
 use anarchy::{Component, ComponentID, ComponentMeta, Entity, macros::Resource};
 use derive_more::{Deref, DerefMut};
-use magician_vgpu::{Pipeline, SinglePass, VirtualGpu};
+use magician_vgpu::{Pipeline, PipelineBuilder, SinglePass, VirtualGpu};
 use mutual::AsAny;
 
 use crate::Camera;
@@ -20,7 +20,7 @@ pub struct MaterialPipelineStorage {
 /// will have the same ID.
 pub trait Material: Any {
     fn id(&self) -> TypeId { TypeId::of::<Self>() }
-    fn create_pipeline(&self, vgpu: &VirtualGpu) -> Pipeline;
+    fn create_pipeline<'a>(&'a self, vgpu: &VirtualGpu) -> PipelineBuilder<'a>;
     fn render_entity<'a>(&'a self, vgpu: &VirtualGpu, pass: &mut SinglePass<'a>, camera: &Camera, entity: &'a Entity);
 }
 

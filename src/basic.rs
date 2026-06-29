@@ -1,5 +1,5 @@
 use anarchy::{ComponentMeta, extract_comps_distributed, macros::Getters};
-use magician_vgpu::{BindGroupProvider, BindableObject, DrawSettings, MutableBuffer, Pipeline, ShaderSource, SinglePass, VirtualGpu, WritableBuffer, glam::Mat4, rust::Vec4};
+use magician_vgpu::{BindGroupProvider, BindableObject, DrawSettings, MutableBuffer, Pipeline, ShaderSource, ShaderType, SinglePass, VirtualGpu, WritableBuffer, glam::Mat4, rust::Vec4};
 use mutual::{CastableSharedData, CowData, RefCastGuard};
 use wgpu::{BufferUsages, ShaderStages};
 
@@ -26,20 +26,28 @@ impl BasicMaterial {
 }
 
 impl Material for BasicMaterial {
-    fn create_pipeline(&self, vgpu: &magician_vgpu::VirtualGpu) -> magician_vgpu::Pipeline {
+    fn create_pipeline<'a>(&'a self, vgpu: &magician_vgpu::VirtualGpu) -> magician_vgpu::PipelineBuilder<'a> {
         Pipeline::builder("Normal Shader")
-            .shader(ShaderSource::Independent { 
-                vertex: shaders::basic_shader::SHADER_primary_vs_main.into(), 
-                vertex_main_function: "primary_vs_main".into(), 
-                fragment: shaders::basic_shader::SHADER_primary_fs_main.into(), 
-                fragment_main_function: "primary_fs_main".into()
-            })
+            .source(
+                ShaderType::Vertex, 
+                ShaderSource {
+                    source: shaders::basic_shader::SHADER_primary_vs_main.into(),
+                    main_function: "primary_vs_main".into()
+                }
+            )
+            .source(
+                ShaderType::Fragment, 
+                ShaderSource {
+                    source: shaders::basic_shader::SHADER_primary_fs_main.into(),
+                    main_function: "primary_fs_main".into()
+                }
+            )
             .depth_format(DEPTH_FORMAT)
             .vertex(vertex_buffer_layout())
             .vertex(instance_buffer_layout())
-            .layout_raw::<shaders::common::Material>(&shaders::common::Material::layout(vgpu, ShaderStages::VERTEX_FRAGMENT))
-            .layout_raw::<shaders::common::CameraInput>(&shaders::common::CameraInput::layout(vgpu, ShaderStages::VERTEX_FRAGMENT))
-            .build(&vgpu)
+            .layout_raw::<shaders::common::Material>(shaders::common::Material::layout(vgpu, ShaderStages::VERTEX_FRAGMENT))
+            .layout_raw::<shaders::common::CameraInput>(shaders::common::CameraInput::layout(vgpu, ShaderStages::VERTEX_FRAGMENT))
+            // .build(&vgpu)
     }
 
     fn render_entity<'a>(

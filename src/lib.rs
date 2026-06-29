@@ -44,7 +44,7 @@ pub fn update_cameras(
 }
 
 
-#[system(std::i32::MAX / 2)]
+#[system]
 pub fn render(
     graphics: Res<Graphics>,
     frame: ResMut<Frame>,
@@ -75,7 +75,7 @@ pub fn render(
 
             // ensure pipeline exists for material
             if !pipelines.contains_key(&material.id()) {
-                pipelines.insert(material.id(), material.create_pipeline(&*graphics));
+                pipelines.insert(material.id(), material.create_pipeline(&*graphics).build(&*graphics));
             }
 
             // create material group if needed, then save material and entity
