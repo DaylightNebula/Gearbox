@@ -1,63 +1,9 @@
 use anarchy::{ComponentMeta, extract_comps_distributed, macros::Getters};
-use magician_vgpu::{BindGroupProvider, BindableObject, DrawSettings, ImmutableBuffer, MutableBuffer, Pipeline, PipelineBuilder, ShaderSource, ShaderType, SinglePass, VirtualGpu, WritableBuffer, glam::Mat4, rust::Vec4};
+use magician_vgpu::{DrawSettings, ImmutableBuffer, MutableBuffer, Pipeline, PipelineBuilder, ShaderSource, ShaderType, SinglePass, VirtualGpu, WritableBuffer, glam::Mat4};
 use mutual::{CastableSharedData, CowData, RefCastGuard};
-use wgpu::{BufferUsages, ShaderStages};
+use wgpu::BufferUsages;
 
-use crate::{Camera, Material, Mesh, Transform, shaders};
-
-pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
-
-/// A basic material that defines only a color to draw with the
-/// material with.
-pub struct BasicMaterial {
-    buffers: CowData<BindableObject<shaders::common::Material>>,
-    color: Vec4
-}
-
-impl BasicMaterial {
-    pub fn new(color: Vec4) -> Self {
-        Self { buffers: CowData::null(), color }
-    }
-}
-
-impl Material for BasicMaterial {
-    fn create_pipeline<'a>(&'a self, vgpu: &magician_vgpu::VirtualGpu) -> magician_vgpu::PipelineBuilder<'a> {
-        Pipeline::builder("Normal Shader")
-            .source(
-                ShaderType::Fragment, 
-                ShaderSource {
-                    source: shaders::basic_shader::SHADER_primary_fs_main.into(),
-                    main_function: "primary_fs_main".into()
-                }
-            )
-            .depth_format(DEPTH_FORMAT)
-            .layout_raw::<shaders::common::Material>(shaders::common::Material::layout(vgpu, ShaderStages::VERTEX_FRAGMENT))
-            .layout_raw::<shaders::common::CameraInput>(shaders::common::CameraInput::layout(vgpu, ShaderStages::VERTEX_FRAGMENT))
-    }
-
-    fn prep_render_entity<'a>(
-        &'a self,
-        vgpu: &VirtualGpu, 
-        pass: &mut SinglePass<'a>, 
-        camera: &Camera, 
-        _entity: &'a anarchy::Entity
-    ) {
-        // get camera bindable or fail
-        let Some(bindable) = camera.bindable()
-            else { return };
-
-        if self.buffers.is_null() {
-            let material_buffer = MutableBuffer::new(vgpu, &self.color, BufferUsages::UNIFORM);
-            let material_bind = BindableObject::<shaders::common::Material>::from_inputs(vgpu, &material_buffer);
-
-            self.buffers.set(material_bind);
-        }
-    
-        // draw buffers
-        pass.bind(bindable);
-        pass.bind(&self.buffers.get_ref());
-    }
-}
+use crate::{Mesh, Transform, shaders};
 
 
 /// A basic mesh with a simple vertex determined by `shaders::common::VertexInput` 

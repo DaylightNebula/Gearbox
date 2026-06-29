@@ -5,6 +5,10 @@ use derive_more::{Deref, DerefMut};
 use magician_vgpu::{PipelineBuilder, SinglePass, VirtualGpu};
 use mutual::AsAny;
 
+pub mod basic;
+
+pub use basic::*;
+
 /// Standard trait for any `Material` type.  All implemenator
 /// of `Material` given a `Component` implementation but all
 /// will have the same ID.

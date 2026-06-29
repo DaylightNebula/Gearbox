@@ -1,3 +1,5 @@
+#![allow(ambiguous_glob_reexports)]
+
 use std::collections::LinkedList;
 
 use ahash::AHashMap;
@@ -5,13 +7,11 @@ use anarchy::{ComponentMeta, MaskBuilder, Query, Res, ResMut, extract_comps, mac
 use cell::{App, Frame, Graphics, Plugin};
 use magician_vgpu::{LoadOp, PassAttachment, PassTarget, StoreOp, glam::Vec4};
 
-pub mod basic;
 pub mod camera;
 pub mod material;
 pub mod mesh;
 pub mod transform;
 
-pub use basic::*;
 pub use camera::*;
 pub use material::*;
 pub use mesh::*;

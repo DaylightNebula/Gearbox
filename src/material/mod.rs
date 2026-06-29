@@ -8,6 +8,10 @@ use mutual::AsAny;
 
 use crate::Camera;
 
+pub mod basic;
+
+pub use basic::*;
+
 
 /// Central storage for all pipelines in use by `Material`s.
 #[derive(Resource, Default, Deref, DerefMut)]
