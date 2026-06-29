@@ -12,7 +12,7 @@ use crate::Camera;
 /// Central storage for all pipelines in use by `Material`s.
 #[derive(Resource, Default, Deref, DerefMut)]
 pub struct MaterialPipelineStorage {
-    pipelines: AHashMap<TypeId, Pipeline>
+    pipelines: AHashMap<(TypeId, TypeId), Pipeline>
 }
 
 /// Standard trait for any `Material` type.  All implemenator
@@ -21,12 +21,14 @@ pub struct MaterialPipelineStorage {
 pub trait Material: Any {
     fn id(&self) -> TypeId { TypeId::of::<Self>() }
     fn create_pipeline<'a>(&'a self, vgpu: &VirtualGpu) -> PipelineBuilder<'a>;
-    fn render_entity<'a>(&'a self, vgpu: &VirtualGpu, pass: &mut SinglePass<'a>, camera: &Camera, entity: &'a Entity);
+    fn prep_render_entity<'a>(&'a self, vgpu: &VirtualGpu, pass: &mut SinglePass<'a>, camera: &Camera, entity: &'a Entity);
 }
 
 
 // MAKE MATERIAL A COMPONENT BY DEFAULT THAT HAVE THE SAME ID'S
 
+#[derive(Deref, DerefMut)]
+pub struct MaterialRef<A>(pub A);
 
 static MATERIAL_COMPONENT_ID: OnceLock<ComponentID> = OnceLock::new();
 
@@ -49,17 +51,3 @@ impl <A: Material + 'static> Component for MaterialRef<A> {
         Self::bit_mask()
     }
 }
-
-#[derive(Deref, DerefMut)]
-pub struct MaterialRef<A>(pub A);
-// impl <A: Material + 'static> ComponentQueryPart for &MaterialRef<A> {
-//     type Output = RefCastGuard<Box<dyn Component>, A>;
-//     fn id() -> ComponentID { MaterialRef::<A>::bit_mask() }
-//     fn append_req_mask(builder: &mut MaskBuilder) { builder.insert_raw(MaterialRef::<A>::bit_mask()); }
-//     fn append_opt_mask(_builder: &mut MaskBuilder) {}
-//     fn extract<'a>(mutex: Option<&'a RelaxedMutex<Box<dyn Component + 'static>>>) -> Self::Output { 
-//         mutex
-//             .expect("Query did not follow mask")
-//             .lock_cast_ref() 
-//     }
-// }

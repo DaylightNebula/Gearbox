@@ -1,22 +1,17 @@
 use anarchy::{ComponentMeta, extract_comps_distributed, macros::Getters};
-use magician_vgpu::{BindGroupProvider, BindableObject, DrawSettings, MutableBuffer, Pipeline, ShaderSource, ShaderType, SinglePass, VirtualGpu, WritableBuffer, glam::Mat4, rust::Vec4};
+use magician_vgpu::{BindGroupProvider, BindableObject, DrawSettings, ImmutableBuffer, MutableBuffer, Pipeline, PipelineBuilder, ShaderSource, ShaderType, SinglePass, VirtualGpu, WritableBuffer, glam::Mat4, rust::Vec4};
 use mutual::{CastableSharedData, CowData, RefCastGuard};
 use wgpu::{BufferUsages, ShaderStages};
 
 use crate::{Camera, Material, Mesh, Transform, shaders};
 
-pub type BasicMesh = Mesh<shaders::basic_shader::VertexInput>;
 pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 
+/// A basic material that defines only a color to draw with the
+/// material with.
 pub struct BasicMaterial {
-    buffers: CowData<BasicMaterialBuffers>,
+    buffers: CowData<BindableObject<shaders::common::Material>>,
     color: Vec4
-}
-
-#[derive(Getters)]
-pub struct BasicMaterialBuffers {
-    instance_buffer: MutableBuffer<[Mat4]>,
-    material_bind: BindableObject<shaders::common::Material>
 }
 
 impl BasicMaterial {
@@ -29,13 +24,6 @@ impl Material for BasicMaterial {
     fn create_pipeline<'a>(&'a self, vgpu: &magician_vgpu::VirtualGpu) -> magician_vgpu::PipelineBuilder<'a> {
         Pipeline::builder("Normal Shader")
             .source(
-                ShaderType::Vertex, 
-                ShaderSource {
-                    source: shaders::basic_shader::SHADER_primary_vs_main.into(),
-                    main_function: "primary_vs_main".into()
-                }
-            )
-            .source(
                 ShaderType::Fragment, 
                 ShaderSource {
                     source: shaders::basic_shader::SHADER_primary_fs_main.into(),
@@ -43,69 +31,118 @@ impl Material for BasicMaterial {
                 }
             )
             .depth_format(DEPTH_FORMAT)
-            .vertex(vertex_buffer_layout())
-            .vertex(instance_buffer_layout())
             .layout_raw::<shaders::common::Material>(shaders::common::Material::layout(vgpu, ShaderStages::VERTEX_FRAGMENT))
             .layout_raw::<shaders::common::CameraInput>(shaders::common::CameraInput::layout(vgpu, ShaderStages::VERTEX_FRAGMENT))
-            // .build(&vgpu)
     }
 
-    fn render_entity<'a>(
+    fn prep_render_entity<'a>(
         &'a self,
         vgpu: &VirtualGpu, 
         pass: &mut SinglePass<'a>, 
         camera: &Camera, 
-        entity: &'a anarchy::Entity
+        _entity: &'a anarchy::Entity
     ) {
         // get camera bindable or fail
         let Some(bindable) = camera.bindable()
             else { return };
 
+        if self.buffers.is_null() {
+            let material_buffer = MutableBuffer::new(vgpu, &self.color, BufferUsages::UNIFORM);
+            let material_bind = BindableObject::<shaders::common::Material>::from_inputs(vgpu, &material_buffer);
+
+            self.buffers.set(material_bind);
+        }
+    
+        // draw buffers
+        pass.bind(bindable);
+        pass.bind(&self.buffers.get_ref());
+    }
+}
+
+
+/// A basic mesh with a simple vertex determined by `shaders::common::VertexInput` 
+/// and a `Mat4` instance.
+#[derive(Getters)]
+pub struct BasicMesh {
+    pub vertex_buffer: ImmutableBuffer<[shaders::basic_shader::VertexInput]>,
+    pub index_buffer: ImmutableBuffer<[u32]>,
+    pub instance_buffer: CowData<MutableBuffer<[Mat4]>>
+}
+
+impl BasicMesh {
+    pub fn from_raw(
+        vertex_buffer: ImmutableBuffer<[shaders::basic_shader::VertexInput]>, 
+        index_buffer: ImmutableBuffer<[u32]>
+    ) -> Self {
+        Self { vertex_buffer, index_buffer, instance_buffer: CowData::null() }
+    }
+
+    pub fn new(vgpu: &VirtualGpu, vertices: &[shaders::basic_shader::VertexInput], indices: &[u32]) -> Self {
+        Self {
+            vertex_buffer: ImmutableBuffer::new(vgpu, vertices, BufferUsages::VERTEX),
+            index_buffer: ImmutableBuffer::new(vgpu, indices, BufferUsages::INDEX),
+            instance_buffer: CowData::null()
+        }
+    }
+}
+
+impl Mesh for BasicMesh {
+    fn create_pipeline<'a>(
+        &'a self, 
+        _vgpu: &VirtualGpu
+    ) -> PipelineBuilder<'a> {
+        Pipeline::builder("Normal Shader")
+            .source(
+                ShaderType::Vertex, 
+                ShaderSource {
+                    source: shaders::basic_shader::SHADER_primary_vs_main.into(),
+                    main_function: "primary_vs_main".into()
+                }
+            )
+            .vertex(vertex_buffer_layout())
+            .vertex(instance_buffer_layout())
+    }
+
+    fn draw<'a>(
+        &'a self,
+        vgpu: &VirtualGpu,
+        pass: &mut SinglePass<'a>, 
+        entity: &'a anarchy::Entity
+    ) {
         // extract transform and mesh components
         let (mut comps, _ctx) = extract_comps_distributed(
             entity, 
-            &[Transform::bit_mask(), BasicMesh::bit_mask()], 
+            &[Transform::bit_mask()], 
             None
         );
         let transform: RefCastGuard<_, Transform> = comps.next().flatten()
             .expect("BasicMaterial requires Transform companion component").lock_cast_ref();
-        let mesh: RefCastGuard<_, BasicMesh> = comps.next().flatten()
-            .expect("BasicMaterial requires Material companion component!").lock_cast_ref();
 
         // create instance matrix to draw
-        let instance = Mat4::from_scale_rotation_translation(
-            transform.scale, 
-            transform.rotation, 
-            transform.translation
-        );
+        let instances = [
+            Mat4::from_scale_rotation_translation(
+                transform.scale, 
+                transform.rotation, 
+                transform.translation
+            )
+        ];
 
-        // create or update buffers
-        if !self.buffers.is_null() {
-            self.buffers
-                .get_ref()
-                .instance_buffer()
-                .write(vgpu, &[instance])
-                .expect("Failed to update instance buffer");
+        // create or update instance buffer
+        if self.instance_buffer.is_null() {
+            self.instance_buffer.set(MutableBuffer::new(
+                vgpu, 
+                &instances, 
+                wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST
+            ));
         } else {
-            let instance_buffer = MutableBuffer::<[Mat4]>::new(
-                vgpu, &[instance], 
-                BufferUsages::VERTEX | BufferUsages::COPY_DST
-            );
-            
-            let material_buffer = MutableBuffer::new(vgpu, &self.color, BufferUsages::UNIFORM);
-            let material_bind = BindableObject::<shaders::common::Material>::from_inputs(vgpu, &material_buffer);
-
-            self.buffers.set(BasicMaterialBuffers { instance_buffer, material_bind });
+            self.instance_buffer.get_ref().write(vgpu, &instances)
+                .expect("Failed to update instance buffer");
         }
-    
-        // draw buffers
-        let buffers = self.buffers.get_ref();
-        pass.bind_instances(&buffers.instance_buffer);
-        pass.bind(bindable);
-        pass.bind(&buffers.material_bind);
+
+        pass.bind_instances(&*self.instance_buffer.get_ref());
         pass.draw(
-            &mesh.vertex_buffer,
-            &mesh.index_buffer,
+            &self.vertex_buffer,
+            &self.index_buffer,
             DrawSettings::default()
         )
     }

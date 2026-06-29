@@ -58,30 +58,38 @@ pub fn render(
     let mut groups = AHashMap::new();
     let mut builder = MaskBuilder::new();
     builder.insert::<MaterialRef<BasicMaterial>>();
+    builder.insert::<MeshRef<BasicMesh>>();
     let mask = builder.build();
-    let search_ids = [MaterialRef::<BasicMaterial>::bit_mask()];
+    let search_ids = [MaterialRef::<BasicMaterial>::bit_mask(), MeshRef::<BasicMesh>::bit_mask()];
     for chunk in world.query_raw(&mask) {
         let mut extract_ctx = None;
         for entity in chunk.iter() {
             // get material from entity
-            let (material, new_ctx) = {
+            let (material, mesh, new_ctx) = {
                 let (mut iter, new_ctx) = extract_comps(&entity, &search_ids, &extract_ctx);
-                let model: Option<RefCastGuard<_, MaterialRef<BasicMaterial>>> = iter.next().flatten()
+                let material: Option<RefCastGuard<_, MaterialRef<BasicMaterial>>> = iter.next().flatten()
                     .map(|a| a.lock_cast_ref());
-                (model, new_ctx)
+                let mesh: Option<RefCastGuard<_, MeshRef<BasicMesh>>> = iter.next().flatten()
+                    .map(|a| a.lock_cast_ref());
+                (material, mesh, new_ctx)
             };
             let Some(material) = material else { continue };
+            let Some(mesh) = mesh else { continue };
             if let Some(new_ctx) = new_ctx { extract_ctx = Some(new_ctx); }
 
             // ensure pipeline exists for material
-            if !pipelines.contains_key(&material.id()) {
-                pipelines.insert(material.id(), material.create_pipeline(&*graphics).build(&*graphics));
+            let mesh_mat_key = (mesh.id(), material.id());
+            if !pipelines.contains_key(&mesh_mat_key) {
+                let pipeline = material.create_pipeline(&*graphics)
+                    .merge(mesh.create_pipeline(&*graphics))
+                    .build(&*graphics);
+                pipelines.insert(mesh_mat_key, pipeline);
             }
 
             // create material group if needed, then save material and entity
-            let mat_list = groups.entry(material.id())
+            let mat_list = groups.entry(mesh_mat_key)
                 .or_insert_with_key(|_| LinkedList::new());
-            mat_list.push_back((material, entity));
+            mat_list.push_back((material, mesh, entity));
         }
     }
     
@@ -113,17 +121,19 @@ pub fn render(
     );
 
     // set material pipeline
-    for (id, material_list) in groups.iter() {
-        let Some(pipeline) = pipelines.get(id) else { continue };
+    for (mesh_mat_key, material_list) in groups.iter() {
+        let Some(pipeline) = pipelines.get(mesh_mat_key) else { continue };
 
         pass.use_pipeline(&*pipeline);
-        for (material, entity) in material_list {
-            material.render_entity(
+        for (material, mesh, entity) in material_list {
+            material.prep_render_entity(
                 &*graphics, 
                 &mut pass, 
                 &camera, 
                 &*entity
             );
+
+            mesh.draw(&*graphics, &mut pass, entity);
         }
     }
 }
