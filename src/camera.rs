@@ -104,7 +104,8 @@ impl Camera {
 
     /// Update the internal buffers for this camera
     pub(crate) fn update(&mut self, vgpu: &VirtualGpu, transform: &Transform) -> anyhow::Result<()> {
-        // generate view and projection matricies;
+        // generate view and projection matricies
+        #[allow(deprecated)]
         let vp_mat = OPENGL_TO_WGPU_MATRIX * Mat4::perspective_rh(
             0.785398, 
             vgpu.config().width as f32 / vgpu.config().height as f32, 
