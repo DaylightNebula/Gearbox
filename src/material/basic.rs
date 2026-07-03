@@ -1,4 +1,4 @@
-use magician_vgpu::{BindGroupProvider, BindableObject, MutableBuffer, Pipeline, ShaderSource, ShaderType, SinglePass, VirtualGpu, rust::Vec4};
+use magician_vgpu::{BindGroupProvider, BindableObject, MutableBuffer, Pipeline, ShaderSource, ShaderType, SinglePass, VirtualGpu, glam::Vec4};
 use mutual::CowData;
 use wgpu::{BufferUsages, ShaderStages};
 
@@ -46,7 +46,7 @@ impl Material for BasicMaterial {
             else { return };
 
         if self.buffers.is_null() {
-            let material_buffer = MutableBuffer::new(vgpu, &self.color, BufferUsages::UNIFORM);
+            let material_buffer = MutableBuffer::new(vgpu, &self.color.into(), BufferUsages::UNIFORM);
             let material_bind = BindableObject::<shaders::common::Material>::from_inputs(vgpu, &material_buffer);
 
             self.buffers.set(material_bind);

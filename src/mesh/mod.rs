@@ -1,9 +1,8 @@
-use std::{any::{Any, TypeId}, sync::OnceLock};
+use std::any::{Any, TypeId};
 
-use anarchy::{Component, ComponentID, ComponentMeta};
+use anarchy::macros::Component;
 use derive_more::{Deref, DerefMut};
 use magician_vgpu::{PipelineBuilder, SinglePass, VirtualGpu};
-use mutual::AsAny;
 
 pub mod basic;
 
@@ -31,27 +30,11 @@ pub trait Mesh: Any {
 
 // MAKE MATERIAL A COMPONENT BY DEFAULT THAT HAVE THE SAME ID'S
 
-#[derive(Deref, DerefMut)]
-pub struct MeshRef<A>(pub A);
+#[derive(Deref, DerefMut, Component)]
+pub struct MeshRef(pub Box<dyn Mesh>);
 
-static MESH_COMPONENT_ID: OnceLock<ComponentID> = OnceLock::new();
-
-impl <A: Mesh + 'static>  AsAny for MeshRef<A> {
-    fn as_any(&self) -> &dyn std::any::Any { self }
-    fn as_any_mut(&mut self) -> &mut dyn std::any::Any { self }
-}
-
-impl <A: Mesh + 'static> ComponentMeta for MeshRef<A> {
-    fn bit_mask() -> ComponentID {
-        *MESH_COMPONENT_ID.get_or_init(|| {
-            anarchy::ecs::components::NEXT_BIT_MASK
-                .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-        })
-    }
-}
-
-impl <A: Mesh + 'static> Component for MeshRef<A> {
-    fn get_bit_mask(&self) -> ComponentID {
-        Self::bit_mask()
+impl MeshRef {
+    pub fn new<M: Mesh + 'static>(mesh: M) -> Self {
+        Self(Box::new(mesh))
     }
 }

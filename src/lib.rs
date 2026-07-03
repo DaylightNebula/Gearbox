@@ -57,19 +57,19 @@ pub fn render(
     // group all renderable materials by there material's ID
     let mut groups = AHashMap::new();
     let mut builder = MaskBuilder::new();
-    builder.insert::<MaterialRef<BasicMaterial>>();
-    builder.insert::<MeshRef<BasicMesh>>();
+    builder.insert::<MaterialRef>();
+    builder.insert::<MeshRef>();
     let mask = builder.build();
-    let search_ids = [MaterialRef::<BasicMaterial>::bit_mask(), MeshRef::<BasicMesh>::bit_mask()];
+    let search_ids = [MaterialRef::bit_mask(), MeshRef::bit_mask()];
     for chunk in world.query_raw(&mask) {
         let mut extract_ctx = None;
         for entity in chunk.iter() {
             // get material from entity
             let (material, mesh, new_ctx) = {
                 let (mut iter, new_ctx) = extract_comps(&entity, &search_ids, &extract_ctx);
-                let material: Option<RefCastGuard<_, MaterialRef<BasicMaterial>>> = iter.next().flatten()
+                let material: Option<RefCastGuard<_, MaterialRef>> = iter.next().flatten()
                     .map(|a| a.lock_cast_ref());
-                let mesh: Option<RefCastGuard<_, MeshRef<BasicMesh>>> = iter.next().flatten()
+                let mesh: Option<RefCastGuard<_, MeshRef>> = iter.next().flatten()
                     .map(|a| a.lock_cast_ref());
                 (material, mesh, new_ctx)
             };

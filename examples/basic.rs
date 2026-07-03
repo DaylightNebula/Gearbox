@@ -1,7 +1,7 @@
 use anarchy::{EntityBuilder, Query, Res, WorldDatabase, macros::system};
 use cell::{App, Graphics};
 use gearbox::{BasicMaterial, BasicMesh, Camera, MaterialRef, MeshRef, RenderPlugin, Transform};
-use magician_vgpu::{glam::{self, Quat}, rust::{Vec2, Vec3, Vec4}};
+use magician_vgpu::{glam::{self, Quat}, rust::{Vec2, Vec3}};
 use shaders::basic_shader;
 
 fn main() -> anyhow::Result<()> {
@@ -31,8 +31,8 @@ fn setup(
     world.insert(
         EntityBuilder::default()
             .add(Transform::identity())
-            .add(MaterialRef(BasicMaterial::new(Vec4::new(0.1, 0.8, 0.2, 1.0))))
-            .add(MeshRef(mesh))
+            .add(MaterialRef::new(BasicMaterial::new(glam::Vec4::new(0.1, 0.8, 0.2, 1.0))))
+            .add(MeshRef::new(mesh))
             .build()
     );
 
@@ -46,7 +46,7 @@ fn setup(
 
 #[system]
 fn update(
-    query: Query<(&MeshRef<BasicMesh>, &mut Transform)>
+    query: Query<(&MeshRef, &mut Transform)>
 ) {
     for (_mesh, mut transform) in query.as_iter() {
         transform.rotate_by(Quat::from_euler(glam::EulerRot::XYZ, 0.01, 0.01, 0.01));
