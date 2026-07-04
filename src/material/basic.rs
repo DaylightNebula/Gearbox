@@ -30,8 +30,8 @@ impl Material for BasicMaterial {
                 }
             )
             .depth_format(wgpu::TextureFormat::Depth32Float)
-            .layout_raw::<shaders::basic_material::BasicMaterial>(shaders::basic_material::BasicMaterial::layout(vgpu, ShaderStages::VERTEX_FRAGMENT))
-            .layout_raw::<shaders::common::CameraInput>(shaders::common::CameraInput::layout(vgpu, ShaderStages::VERTEX_FRAGMENT))
+            .layout_raw::<shaders::basic_material::BasicMaterial>(0, shaders::basic_material::BasicMaterial::layout(vgpu, ShaderStages::VERTEX_FRAGMENT))
+            .layout_raw::<shaders::common::CameraInput>(1, shaders::common::CameraInput::layout(vgpu, ShaderStages::VERTEX_FRAGMENT))
     }
 
     fn prep_render_entity<'a>(

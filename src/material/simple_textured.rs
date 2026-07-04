@@ -51,8 +51,8 @@ impl Material for SimpleTexturedMaterial {
                 }
             )
             .depth_format(DEPTH_FORMAT)
-            .layout_raw::<shaders::simple_textured::SimpleTexturedMaterial>(shaders::simple_textured::SimpleTexturedMaterial::layout(vgpu, ShaderStages::VERTEX_FRAGMENT))
-            .layout_raw::<shaders::common::CameraInput>(shaders::common::CameraInput::layout(vgpu, ShaderStages::VERTEX_FRAGMENT))
+            .layout_raw::<shaders::simple_textured::SimpleTexturedMaterial>(0, shaders::simple_textured::SimpleTexturedMaterial::layout(vgpu, ShaderStages::VERTEX_FRAGMENT))
+            .layout_raw::<shaders::common::CameraInput>(1, shaders::common::CameraInput::layout(vgpu, ShaderStages::VERTEX_FRAGMENT))
     }
 
     fn prep_render_entity<'a>(
