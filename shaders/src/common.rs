@@ -12,8 +12,3 @@ pub struct Camera {
     pub view_pos: Vec4,
     pub view_proj: Mat4
 }
-
-#[derive(ShaderGroup, BindableObject)]
-pub struct Material {
-    #[uniform] pub diffuse: Vec4
-}

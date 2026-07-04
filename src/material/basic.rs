@@ -1,15 +1,15 @@
+use anarchy::macros::Getters;
 use magician_vgpu::{BindGroupProvider, BindableObject, MutableBuffer, Pipeline, ShaderSource, ShaderType, SinglePass, VirtualGpu, glam::Vec4};
 use mutual::CowData;
 use wgpu::{BufferUsages, ShaderStages};
 
 use crate::{Camera, Material, shaders};
 
-pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
-
 /// A basic material that defines only a color to draw with the
 /// material with.
+#[derive(Clone, Getters)]
 pub struct BasicMaterial {
-    buffers: CowData<BindableObject<shaders::common::Material>>,
+    buffers: CowData<BindableObject<shaders::basic_material::BasicMaterial>>,
     color: Vec4
 }
 
@@ -25,12 +25,12 @@ impl Material for BasicMaterial {
             .source(
                 ShaderType::Fragment, 
                 ShaderSource {
-                    source: shaders::basic_shader::SHADER_primary_fs_main.into(),
+                    source: shaders::basic_material::SHADER_primary_fs_main.into(),
                     main_function: "primary_fs_main".into()
                 }
             )
-            .depth_format(DEPTH_FORMAT)
-            .layout_raw::<shaders::common::Material>(shaders::common::Material::layout(vgpu, ShaderStages::VERTEX_FRAGMENT))
+            .depth_format(wgpu::TextureFormat::Depth32Float)
+            .layout_raw::<shaders::basic_material::BasicMaterial>(shaders::basic_material::BasicMaterial::layout(vgpu, ShaderStages::VERTEX_FRAGMENT))
             .layout_raw::<shaders::common::CameraInput>(shaders::common::CameraInput::layout(vgpu, ShaderStages::VERTEX_FRAGMENT))
     }
 
@@ -47,7 +47,7 @@ impl Material for BasicMaterial {
 
         if self.buffers.is_null() {
             let material_buffer = MutableBuffer::new(vgpu, &self.color.into(), BufferUsages::UNIFORM);
-            let material_bind = BindableObject::<shaders::common::Material>::from_inputs(vgpu, &material_buffer);
+            let material_bind = BindableObject::<shaders::basic_material::BasicMaterial>::from_inputs(vgpu, &material_buffer);
 
             self.buffers.set(material_bind);
         }

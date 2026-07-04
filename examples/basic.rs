@@ -2,7 +2,7 @@ use anarchy::{EntityBuilder, Query, Res, WorldDatabase, macros::system};
 use cell::{App, Graphics};
 use gearbox::{BasicMaterial, BasicMesh, Camera, MaterialRef, MeshRef, RenderPlugin, Transform};
 use magician_vgpu::{glam::{self, Quat}, rust::{Vec2, Vec3}};
-use shaders::basic_shader;
+use shaders::basic_vertex;
 
 fn main() -> anyhow::Result<()> {
     App::new()
@@ -16,10 +16,10 @@ fn main() -> anyhow::Result<()> {
 fn setup(
     graphics: Res<Graphics>
 ) {
-    let vertices: [basic_shader::VertexInput; 3] = [
-        basic_shader::VertexInput { position: Vec3::new(0.0,  0.5, 0.0), tex_coords: Vec2::new(0.5, 0.0) },
-        basic_shader::VertexInput { position: Vec3::new(-0.5,  -0.5, 0.0), tex_coords: Vec2::new(0.0, 1.0) },
-        basic_shader::VertexInput { position: Vec3::new(0.5,  -0.5, 0.0), tex_coords: Vec2::new(1.0, 1.0) }
+    let vertices: [basic_vertex::VertexInput; 3] = [
+        basic_vertex::VertexInput { position: Vec3::new(0.0,  0.5, 0.0), tex_coords: Vec2::new(0.5, 0.0) },
+        basic_vertex::VertexInput { position: Vec3::new(-0.5,  -0.5, 0.0), tex_coords: Vec2::new(0.0, 1.0) },
+        basic_vertex::VertexInput { position: Vec3::new(0.5,  -0.5, 0.0), tex_coords: Vec2::new(1.0, 1.0) }
     ];
 
     let mesh = BasicMesh::new(

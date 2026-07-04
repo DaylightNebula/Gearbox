@@ -10,20 +10,20 @@ use crate::{Mesh, Transform, shaders};
 /// and a `Mat4` instance.
 #[derive(Getters)]
 pub struct BasicMesh {
-    pub vertex_buffer: ImmutableBuffer<[shaders::basic_shader::VertexInput]>,
+    pub vertex_buffer: ImmutableBuffer<[shaders::basic_vertex::VertexInput]>,
     pub index_buffer: ImmutableBuffer<[u32]>,
     pub instance_buffer: CowData<MutableBuffer<[Mat4]>>
 }
 
 impl BasicMesh {
     pub fn from_raw(
-        vertex_buffer: ImmutableBuffer<[shaders::basic_shader::VertexInput]>, 
+        vertex_buffer: ImmutableBuffer<[shaders::basic_vertex::VertexInput]>, 
         index_buffer: ImmutableBuffer<[u32]>
     ) -> Self {
         Self { vertex_buffer, index_buffer, instance_buffer: CowData::null() }
     }
 
-    pub fn new(vgpu: &VirtualGpu, vertices: &[shaders::basic_shader::VertexInput], indices: &[u32]) -> Self {
+    pub fn new(vgpu: &VirtualGpu, vertices: &[shaders::basic_vertex::VertexInput], indices: &[u32]) -> Self {
         Self {
             vertex_buffer: ImmutableBuffer::new(vgpu, vertices, BufferUsages::VERTEX),
             index_buffer: ImmutableBuffer::new(vgpu, indices, BufferUsages::INDEX),
@@ -41,7 +41,7 @@ impl Mesh for BasicMesh {
             .source(
                 ShaderType::Vertex, 
                 ShaderSource {
-                    source: shaders::basic_shader::SHADER_primary_vs_main.into(),
+                    source: shaders::basic_vertex::SHADER_primary_vs_main.into(),
                     main_function: "primary_vs_main".into()
                 }
             )
@@ -97,7 +97,7 @@ impl Mesh for BasicMesh {
 fn vertex_buffer_layout() -> wgpu::VertexBufferLayout<'static> {
     use std::mem;
     wgpu::VertexBufferLayout {
-        array_stride: mem::size_of::<shaders::basic_shader::VertexInput>() as wgpu::BufferAddress,
+        array_stride: mem::size_of::<shaders::basic_vertex::VertexInput>() as wgpu::BufferAddress,
         step_mode: wgpu::VertexStepMode::Vertex,
         attributes: &[
             wgpu::VertexAttribute {
@@ -117,7 +117,7 @@ fn vertex_buffer_layout() -> wgpu::VertexBufferLayout<'static> {
 fn instance_buffer_layout() -> wgpu::VertexBufferLayout<'static> {
     use std::mem;
     wgpu::VertexBufferLayout {
-        array_stride: mem::size_of::<shaders::basic_shader::InstanceInput>() as wgpu::BufferAddress,
+        array_stride: mem::size_of::<shaders::basic_vertex::InstanceInput>() as wgpu::BufferAddress,
         // We need to switch from using a step mode of Vertex to Instance
         // This means that our shaders will only change to use the next
         // instance when the shader starts processing a new instance

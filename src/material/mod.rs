@@ -8,9 +8,10 @@ use magician_vgpu::{Pipeline, PipelineBuilder, SinglePass, VirtualGpu};
 use crate::Camera;
 
 pub mod basic;
+pub mod simple_textured;
 
 pub use basic::*;
-
+pub use simple_textured::*;
 
 /// Central storage for all pipelines in use by `Material`s.
 #[derive(Resource, Default, Deref, DerefMut)]

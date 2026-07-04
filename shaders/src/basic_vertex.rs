@@ -1,7 +1,7 @@
 use bytemuck::{Pod, Zeroable};
 use magician_vgpu::rust::{macros::*, *};
 
-use crate::common::{CameraInput, Material};
+use crate::{common::CameraInput};
 
 #[repr(C)]
 #[derive(Pod, Zeroable, Clone, Copy, ShaderLayout)]
@@ -30,7 +30,6 @@ pub struct VertexOutput {
 
 #[shader("./shader_out", vertex)]
 pub fn primary_vs_main(
-    #[group = 0] _material: Material,
     #[group = 1] cam_in: CameraInput,
     model: VertexInput,
     instance: InstanceInput
@@ -42,21 +41,4 @@ pub fn primary_vs_main(
         clip_position: cam_in.camera.view_proj * world_position, 
         tex_coords: model.tex_coords
     };
-}
-
-#[allow(unused)]
-#[derive(ShaderLayout)]
-pub struct FragmentOutput {
-    #[location = 0] color: Vec4
-}
-
-#[shader("./shader_out", fragment)]
-pub fn primary_fs_main(
-    #[group = 0] material: Material,
-    #[group = 1] _cam_in: CameraInput,
-    _input: VertexOutput
-) -> FragmentOutput {
-    // let object_color = textureSample(material.t_diffuse, material.s_diffuse, input.tex_coords);
-
-    return FragmentOutput { color: material.diffuse };
 }
