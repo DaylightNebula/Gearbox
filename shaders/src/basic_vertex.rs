@@ -7,7 +7,7 @@ use crate::{common::CameraInput};
 #[derive(Pod, Zeroable, Clone, Copy, ShaderLayout)]
 pub struct VertexInput {
     #[location = 0] pub position: Vec3,
-    #[location = 1] pub tex_coords: Vec2
+    #[location = 1] pub uvs: Vec2
 }
 
 
@@ -23,8 +23,8 @@ pub struct InstanceInput {
 #[allow(unused)]
 #[derive(ShaderLayout)]
 pub struct VertexOutput {
-    #[builtin = "position"] clip_position: Vec4,
-    #[location = 0] tex_coords: Vec2
+    #[builtin = "position"] pub clip_position: Vec4,
+    #[location = 0] pub uvs: Vec2
 }
 
 
@@ -39,6 +39,6 @@ pub fn primary_vs_main(
 
     return VertexOutput { 
         clip_position: cam_in.camera.view_proj * world_position, 
-        tex_coords: model.tex_coords
+        uvs: model.uvs
     };
 }

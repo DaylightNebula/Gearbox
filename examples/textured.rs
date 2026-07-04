@@ -1,6 +1,6 @@
 use anarchy::{EntityBuilder, Query, Res, WorldDatabase, macros::system};
 use cell::{App, Graphics};
-use gearbox::{BasicMaterial, BasicMesh, Camera, MaterialRef, MeshRef, RenderPlugin, Transform};
+use gearbox::{BasicMesh, Camera, MaterialRef, MeshRef, RenderPlugin, SimpleTexturedMaterial, Transform};
 use magician_vgpu::{glam::{self, Quat}, rust::{Vec2, Vec3}};
 use shaders::basic_vertex;
 
@@ -31,7 +31,7 @@ fn setup(
     world.insert(
         EntityBuilder::default()
             .add(Transform::identity())
-            .add(MaterialRef::new(BasicMaterial::new(glam::Vec4::new(0.1, 0.8, 0.2, 1.0))))
+            .add(MaterialRef::new(SimpleTexturedMaterial::from_png(&*graphics, include_bytes!("./cobblestone.png"))?))
             .add(MeshRef::new(mesh))
             .build()
     );

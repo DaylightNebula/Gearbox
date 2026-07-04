@@ -16,3 +16,8 @@ bytemuck = "1.25.0"
 ahash = "0.8.12"
 derive_more = "2.1.1"
 anyhow = "1.0.102"
+
+[dependencies.image]
+version = "0.24"
+default-features = false
+features = ["png", "jpeg"]

@@ -1,5 +1,6 @@
 use anarchy::macros::Getters;
-use magician_vgpu::{BindGroupProvider, BindableObject, Pipeline, ShaderSource, ShaderType, SinglePass, StaticTexture, VirtualGpu};
+use image::GenericImageView;
+use magician_vgpu::{BindGroupProvider, BindableObject, Pipeline, ShaderSource, ShaderType, SinglePass, StaticTexture, TextureDescriptor, VirtualGpu};
 use mutual::CowData;
 use wgpu::ShaderStages;
 
@@ -11,13 +12,31 @@ pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 /// material with.
 #[derive(Getters)]
 pub struct SimpleTexturedMaterial {
-    buffers: CowData<BindableObject<shaders::basic_material::BasicMaterial>>,
+    buffers: CowData<BindableObject<shaders::simple_textured::SimpleTexturedMaterial>>,
     texture: StaticTexture
 }
 
 impl SimpleTexturedMaterial {
     pub fn new(texture: StaticTexture) -> Self {
         Self { buffers: CowData::null(), texture }
+    }
+
+    pub fn from_png(vgpu: &VirtualGpu, bytes: &[u8]) -> anyhow::Result<Self> {
+        let img = image::load_from_memory(bytes)?;
+        let dimensions = img.dimensions();
+        let rgba = img.to_rgba8();
+        let texture = StaticTexture::from_raw(
+            vgpu, 
+            TextureDescriptor {
+                format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                ..Default::default()
+            }, 
+            &rgba, 
+            dimensions.0, 
+            dimensions.1
+        );
+        Ok(Self { texture, buffers: CowData::null() })
     }
 }
 
@@ -27,36 +46,39 @@ impl Material for SimpleTexturedMaterial {
             .source(
                 ShaderType::Fragment, 
                 ShaderSource {
-                    source: shaders::basic_material::SHADER_primary_fs_main.into(),
-                    main_function: "primary_fs_main".into()
+                    source: shaders::simple_textured::SHADER_simple_textured_main.into(),
+                    main_function: "simple_textured_main".into()
                 }
             )
             .depth_format(DEPTH_FORMAT)
-            .layout_raw::<shaders::basic_material::BasicMaterial>(shaders::basic_material::BasicMaterial::layout(vgpu, ShaderStages::VERTEX_FRAGMENT))
+            .layout_raw::<shaders::simple_textured::SimpleTexturedMaterial>(shaders::simple_textured::SimpleTexturedMaterial::layout(vgpu, ShaderStages::VERTEX_FRAGMENT))
             .layout_raw::<shaders::common::CameraInput>(shaders::common::CameraInput::layout(vgpu, ShaderStages::VERTEX_FRAGMENT))
     }
 
     fn prep_render_entity<'a>(
         &'a self,
-        _vgpu: &VirtualGpu, 
-        _pass: &mut SinglePass<'a>, 
-        _camera: &Camera, 
+        vgpu: &VirtualGpu, 
+        pass: &mut SinglePass<'a>, 
+        camera: &Camera, 
         _entity: &'a anarchy::Entity
     ) {
-        todo!()
-        // // get camera bindable or fail
-        // let Some(bindable) = camera.bindable()
-        //     else { return };
+        // get camera bindable or fail
+        let Some(bindable) = camera.bindable()
+            else { return };
 
-        // if self.buffers.is_null() {
-        //     let material_buffer = MutableBuffer::new(vgpu, &self.color.into(), BufferUsages::UNIFORM);
-        //     let material_bind = BindableObject::<shaders::basic_material::BasicMaterial>::from_inputs(vgpu, &material_buffer);
-
-        //     self.buffers.set(material_bind);
-        // }
+        if self.buffers.is_null() {
+            self.buffers.set(
+                BindableObject
+                    ::<shaders::simple_textured::SimpleTexturedMaterial>
+                    ::from_inputs(vgpu, &(
+                        self.texture.view.clone(), 
+                        self.texture.sampler.clone()
+                    ))
+            );
+        }
     
-        // // draw buffers
-        // pass.bind(bindable);
-        // pass.bind(&self.buffers.get_ref());
+        // draw buffers
+        pass.bind(bindable);
+        pass.bind(&self.buffers.get_ref());
     }
 }
