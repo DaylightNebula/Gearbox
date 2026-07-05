@@ -19,11 +19,11 @@ pub trait Mesh: Any {
         vgpu: &VirtualGpu
     ) -> PipelineBuilder<'a>;
 
-    fn draw<'a>(
-        &'a self,
+    fn draw(
+        &self,
         vgpu: &VirtualGpu,
-        pass: &mut SinglePass<'a>, 
-        entity: &'a anarchy::Entity
+        pass: &mut SinglePass, 
+        entity: &anarchy::Entity
     );
 }
 

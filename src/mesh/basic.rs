@@ -49,11 +49,11 @@ impl Mesh for BasicMesh {
             .vertex(instance_buffer_layout())
     }
 
-    fn draw<'a>(
-        &'a self,
+    fn draw(
+        &self,
         vgpu: &VirtualGpu,
-        pass: &mut SinglePass<'a>, 
-        entity: &'a anarchy::Entity
+        pass: &mut SinglePass, 
+        entity: &anarchy::Entity
     ) {
         // extract transform and mesh components
         let (mut comps, _ctx) = extract_comps_distributed(

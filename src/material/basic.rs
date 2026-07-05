@@ -34,12 +34,12 @@ impl Material for BasicMaterial {
             .layout_raw::<shaders::common::CameraInput>(1, shaders::common::CameraInput::layout(vgpu, ShaderStages::VERTEX_FRAGMENT))
     }
 
-    fn prep_render_entity<'a>(
-        &'a self,
+    fn prep_render_entity(
+        &self,
         vgpu: &VirtualGpu, 
-        pass: &mut SinglePass<'a>, 
+        pass: &mut SinglePass, 
         camera: &Camera, 
-        _entity: &'a anarchy::Entity
+        _entity: &anarchy::Entity
     ) {
         // get camera bindable or fail
         let Some(bindable) = camera.bindable()

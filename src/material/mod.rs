@@ -4,6 +4,7 @@ use ahash::AHashMap;
 use anarchy::{Entity, macros::{Component, Resource}};
 use derive_more::{Deref, DerefMut};
 use magician_vgpu::{Pipeline, PipelineBuilder, SinglePass, VirtualGpu};
+use mutual::CowData;
 
 use crate::Camera;
 
@@ -16,7 +17,7 @@ pub use simple_textured::*;
 /// Central storage for all pipelines in use by `Material`s.
 #[derive(Resource, Default, Deref, DerefMut)]
 pub struct MaterialPipelineStorage {
-    pipelines: AHashMap<(TypeId, TypeId), Pipeline>
+    pipelines: AHashMap<(TypeId, TypeId), CowData<Pipeline>>
 }
 
 /// Standard trait for any `Material` type.  All implemenator
@@ -25,7 +26,7 @@ pub struct MaterialPipelineStorage {
 pub trait Material: Any {
     fn id(&self) -> TypeId { TypeId::of::<Self>() }
     fn create_pipeline<'a>(&'a self, vgpu: &VirtualGpu) -> PipelineBuilder<'a>;
-    fn prep_render_entity<'a>(&'a self, vgpu: &VirtualGpu, pass: &mut SinglePass<'a>, camera: &Camera, entity: &'a Entity);
+    fn prep_render_entity(&self, vgpu: &VirtualGpu, pass: &mut SinglePass, camera: &Camera, entity: &Entity);
 }
 
 
