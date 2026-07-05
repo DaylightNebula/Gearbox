@@ -3,9 +3,10 @@
 use std::collections::LinkedList;
 
 use ahash::AHashMap;
-use anarchy::{ComponentMeta, MaskBuilder, Query, Res, ResMut, Schedule, extract_comps, macros::{Getters, Resource, system}};
+use anarchy::{ComponentMeta, MaskBuilder, Query, Res, ResMut, Schedule, ScheduleID, ScheduleTile, execute_schedule_sync, extract_comps, macros::{Resource, system}};
 use cell::{App, Frame, Graphics, Plugin};
-use magician_vgpu::{LoadOp, PassAttachment, PassTarget, StoreOp, glam::Vec4};
+use derive_more::{Deref, DerefMut};
+use magician_vgpu::{LoadOp, PassAttachment, PassTarget, SinglePass, StoreOp, glam::Vec4};
 
 pub mod camera;
 pub mod material;
@@ -20,30 +21,31 @@ pub use transform::*;
 use mutual::{CastableSharedData, CowData, RefCastGuard};
 pub use shaders as shaders;
 
-pub type MainPassScheduleIn = ();
-pub type MainPassScheduleOut = ();
-
 pub struct RenderPlugin;
 impl Plugin for RenderPlugin {
     fn build(self, app: App) -> App {
         app.add_resource(MaterialPipelineStorage::default())
-            .add_resource(MainRenderPassSchedules::default())
+            .add_resource(MainRenderPassSchedule::default())
+            .on_render_startup(setup)
             .on_render_update(update_cameras)
-            .on_render_update(render)
+            .on_render_update(begin_main_pass)
+            .on_render_update(execute_render_schedule)
+            .on_render_update(complete_main_pass)
     }
 }
 
-#[derive(Resource, Getters)]
-pub struct MainRenderPassSchedules {
-    schedule: CowData<Schedule<MainPassScheduleIn, MainPassScheduleOut>>
+#[derive(Resource, Deref, DerefMut)]
+pub struct MainRenderPassSchedule(CowData<Schedule<(), ()>>);
+
+impl Default for MainRenderPassSchedule {
+    fn default() -> Self { Self(CowData::new(Schedule::new_empty())) }
 }
 
-impl Default for MainRenderPassSchedules {
-    fn default() -> Self {
-        Self {
-            schedule: CowData::new(Schedule::new_empty())
-        }
-    }
+#[system]
+pub fn setup(
+    schedule: Res<MainRenderPassSchedule>
+) {
+    schedule.get_ref().add_new(ScheduleTile::new(vec![Box::new(render_mesh_material)]));
 }
 
 #[system(std::i32::MIN)]
@@ -56,9 +58,11 @@ pub fn update_cameras(
     }
 }
 
+#[derive(Resource, Deref, DerefMut)]
+pub struct PassPassthrough(SinglePass);
 
-#[system]
-pub fn render(
+#[system(0)]
+pub fn begin_main_pass(
     graphics: Res<Graphics>,
     frame: ResMut<Frame>,
     pipelines: ResMut<MaterialPipelineStorage>,
@@ -83,7 +87,7 @@ pub fn render(
         });
     
     // draw pass
-    let mut pass = frame.init_pass(
+    let pass = frame.init_pass(
         &[
             PassAttachment {
                 target: PassTarget::PassOutput,
@@ -93,6 +97,41 @@ pub fn render(
         ], 
         depth_attachment
     );
+
+    // add pass passthrough to finish rendering
+    world.insert_resource(PassPassthrough(pass));
+}
+
+#[system(1)]
+fn execute_render_schedule(
+    schedule: Res<MainRenderPassSchedule>
+) {
+    // swap schedules then execute the previous one
+    let prev_schedule = CowData::new(Schedule::new_empty());
+    schedule.swap(&prev_schedule);
+    execute_schedule_sync(
+        &prev_schedule.get_ref(), 
+        &*schedule.get_ref(), 
+        ScheduleID { id: "MAIN_PASS", tick_rate: 0, max_threads: 0 }, 
+        &world, 
+        &()
+    );
+}
+
+#[system(2)]
+fn complete_main_pass() {
+    world.remove_resource::<PassPassthrough>();
+}
+
+#[system]
+fn render_mesh_material(
+    graphics: Res<Graphics>,
+    pipelines: ResMut<MaterialPipelineStorage>,
+    pass: ResMut<PassPassthrough>,
+    camera: Query<&Camera>
+) {
+    // get primary (first) camera
+    let Some(camera) = camera.as_iter().next() else { return Ok(()) };
 
     // group all renderable materials by there material's ID
     let mut groups = AHashMap::new();
