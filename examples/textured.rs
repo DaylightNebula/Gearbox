@@ -1,12 +1,12 @@
 use anarchy::{EntityBuilder, Query, Res, WorldDatabase, macros::system};
 use cell::{App, Graphics};
-use gearbox::{BasicMesh, Camera, MaterialRef, MeshRef, RenderPlugin, SimpleTexturedMaterial, Transform};
+use gearbox::{BasicMesh, Camera, GearboxRenderPlugin, MaterialRef, MeshRef, SimpleTexturedMaterial, Transform};
 use magician_vgpu::{glam::{self, Quat}, rust::{Vec2, Vec3}};
 use shaders::basic_vertex;
 
 fn main() -> anyhow::Result<()> {
     App::new()
-        .add_plugin(RenderPlugin)
+        .add_plugin(GearboxRenderPlugin)
         .on_render_startup(setup)
         .on_update(update)
         .run()
