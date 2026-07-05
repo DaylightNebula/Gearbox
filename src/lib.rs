@@ -1,9 +1,6 @@
 #![allow(ambiguous_glob_reexports)]
 
-use std::collections::LinkedList;
-
-use ahash::AHashMap;
-use anarchy::{ComponentMeta, MaskBuilder, Query, Res, ResMut, Schedule, ScheduleID, ScheduleTile, execute_schedule_sync, extract_comps, macros::{Resource, system}};
+use anarchy::{Query, Res, ResMut, macros::{Resource, system}};
 use cell::{App, Frame, Graphics, Plugin};
 use derive_more::{Deref, DerefMut};
 use magician_vgpu::{LoadOp, PassAttachment, PassTarget, SinglePass, StoreOp, glam::Vec4};
@@ -11,22 +8,23 @@ use magician_vgpu::{LoadOp, PassAttachment, PassTarget, SinglePass, StoreOp, gla
 pub mod camera;
 pub mod material;
 pub mod mesh;
+pub mod schedule;
 pub mod transform;
 
 pub use camera::*;
 pub use material::*;
 pub use mesh::*;
+pub use schedule::*;
 pub use transform::*;
 
-use mutual::{CastableSharedData, CowData, RefCastGuard};
 pub use shaders as shaders;
 
-pub struct RenderPlugin;
-impl Plugin for RenderPlugin {
+/// The primary plugin used by Gearbox renderer.
+pub struct GearboxRenderPlugin;
+impl Plugin for GearboxRenderPlugin {
     fn build(self, app: App) -> App {
-        app.add_resource(MaterialPipelineStorage::default())
-            .add_resource(MainRenderPassSchedule::default())
-            .on_render_startup(setup)
+        app.add_plugin(MainRenderPassPlugin)
+            .add_resource(MaterialPipelineStorage::default())
             .on_render_update(update_cameras)
             .on_render_update(begin_main_pass)
             .on_render_update(execute_render_schedule)
@@ -34,20 +32,16 @@ impl Plugin for RenderPlugin {
     }
 }
 
+/// A passthrough resource that contains the `SinglePass` used
+/// for the rendering of Gearboxs main render pass.  This can
+/// be used by schedules added to `MainRenderPassSchedule` to
+/// render to the main render pass without needing a mesh + material
+/// entity.
 #[derive(Resource, Deref, DerefMut)]
-pub struct MainRenderPassSchedule(CowData<Schedule<(), ()>>);
+pub struct MainPassPassthrough(SinglePass);
 
-impl Default for MainRenderPassSchedule {
-    fn default() -> Self { Self(CowData::new(Schedule::new_empty())) }
-}
-
-#[system]
-pub fn setup(
-    schedule: Res<MainRenderPassSchedule>
-) {
-    schedule.get_ref().add_new(ScheduleTile::new(vec![Box::new(render_mesh_material)]));
-}
-
+/// Used to update all cameras at the earlist possible moment in the render schedule.
+/// This provides up-to-date camera information to anyone using the cameras for rendering.
 #[system(std::i32::MIN)]
 pub fn update_cameras(
     graphics: Res<Graphics>,
@@ -58,9 +52,9 @@ pub fn update_cameras(
     }
 }
 
-#[derive(Resource, Deref, DerefMut)]
-pub struct PassPassthrough(SinglePass);
-
+/// Initializes the main render pass for rendering.  This schedule adds the `MainPassPassthrough` resource.
+/// The three phases of rendering (initialize, render, complete) are split into seperate passes to avoid
+/// lock conflicts with systems running in the `MainRenderPassSchedule`.
 #[system(0)]
 pub fn begin_main_pass(
     graphics: Res<Graphics>,
@@ -99,93 +93,17 @@ pub fn begin_main_pass(
     );
 
     // add pass passthrough to finish rendering
-    world.insert_resource(PassPassthrough(pass));
+    world.insert_resource(MainPassPassthrough(pass));
 }
 
+/// Execute the main render pass schedules through `MainRenderPassSchedule`.
 #[system(1)]
-fn execute_render_schedule(
-    schedule: Res<MainRenderPassSchedule>
-) {
-    // swap schedules then execute the previous one
-    let prev_schedule = CowData::new(Schedule::new_empty());
-    schedule.swap(&prev_schedule);
-    execute_schedule_sync(
-        &prev_schedule.get_ref(), 
-        &*schedule.get_ref(), 
-        ScheduleID { id: "MAIN_PASS", tick_rate: 0, max_threads: 0 }, 
-        &world, 
-        &()
-    );
+fn execute_render_schedule(schedule: Res<MainRenderPassSchedule>) {
+    schedule.execute(world);
 }
 
+/// Complete the main render pass by removing and dropping the pass contained in `MainPassPassthrough`.
 #[system(2)]
 fn complete_main_pass() {
-    world.remove_resource::<PassPassthrough>();
-}
-
-#[system]
-fn render_mesh_material(
-    graphics: Res<Graphics>,
-    pipelines: ResMut<MaterialPipelineStorage>,
-    pass: ResMut<PassPassthrough>,
-    camera: Query<&Camera>
-) {
-    // get primary (first) camera
-    let Some(camera) = camera.as_iter().next() else { return Ok(()) };
-
-    // group all renderable materials by there material's ID
-    let mut groups = AHashMap::new();
-    let mut builder = MaskBuilder::new();
-    builder.insert::<MaterialRef>();
-    builder.insert::<MeshRef>();
-    let mask = builder.build();
-    let search_ids = [MaterialRef::bit_mask(), MeshRef::bit_mask()];
-    for chunk in world.query_raw(&mask) {
-        let mut extract_ctx = None;
-        for entity in chunk.iter() {
-            // get material from entity
-            let (material, mesh, new_ctx) = {
-                let (mut iter, new_ctx) = extract_comps(&entity, &search_ids, &extract_ctx);
-                let material: Option<RefCastGuard<_, MaterialRef>> = iter.next().flatten()
-                    .map(|a| a.lock_cast_ref());
-                let mesh: Option<RefCastGuard<_, MeshRef>> = iter.next().flatten()
-                    .map(|a| a.lock_cast_ref());
-                (material, mesh, new_ctx)
-            };
-            let Some(material) = material else { continue };
-            let Some(mesh) = mesh else { continue };
-            if let Some(new_ctx) = new_ctx { extract_ctx = Some(new_ctx); }
-
-            // ensure pipeline exists for material
-            let mesh_mat_key = (mesh.id(), material.id());
-            if !pipelines.contains_key(&mesh_mat_key) {
-                let pipeline = material.create_pipeline(&*graphics)
-                    .merge(mesh.create_pipeline(&*graphics))
-                    .build(&*graphics);
-                pipelines.insert(mesh_mat_key, CowData::new(pipeline));
-            }
-
-            // create material group if needed, then save material and entity
-            let mat_list = groups.entry(mesh_mat_key)
-                .or_insert_with_key(|_| LinkedList::new());
-            mat_list.push_back((material, mesh, entity));
-        }
-    }
-
-    // set material pipeline
-    for (mesh_mat_key, material_list) in groups.iter() {
-        let Some(pipeline) = pipelines.get(mesh_mat_key) else { continue };
-
-        pass.use_pipeline(pipeline.get_ref());
-        for (material, mesh, entity) in material_list {
-            material.prep_render_entity(
-                &*graphics, 
-                &mut pass, 
-                &camera, 
-                &*entity
-            );
-
-            mesh.draw(&*graphics, &mut pass, entity);
-        }
-    }
+    world.remove_resource::<MainPassPassthrough>();
 }
