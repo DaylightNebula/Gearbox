@@ -1,7 +1,7 @@
 #![allow(ambiguous_glob_reexports)]
 
-use anarchy::{Query, Res, ResMut, macros::{Resource, system}};
-use cell::{App, Frame, Graphics, Plugin};
+use anarchy::{DeltaTime, FlexLocalId, Query, Res, ResMut, macros::{Resource, system}};
+use cell::{App, Frame, Graphics, Plugin, RENDER_SCHEDULE_ID};
 use derive_more::{Deref, DerefMut};
 use magician_vgpu::{LoadOp, PassAttachment, PassTarget, SinglePass, StoreOp, glam::Vec4};
 
@@ -14,6 +14,7 @@ pub mod transform;
 pub use camera::*;
 pub use material::*;
 pub use mesh::*;
+use mutual::SharedData;
 pub use schedule::*;
 pub use transform::*;
 
@@ -60,7 +61,9 @@ pub fn begin_main_pass(
     graphics: Res<Graphics>,
     frame: ResMut<Frame>,
     pipelines: ResMut<MaterialPipelineStorage>,
-    camera: Query<&mut Camera>
+    camera: Query<&mut Camera>,
+    schedule: Res<MainRenderPassSchedule>,
+    delta_time: Res<DeltaTime>
 ) {
     // get primary (first) camera
     let Some(mut camera) = camera.as_iter().next() else { return Ok(()) };
@@ -94,6 +97,9 @@ pub fn begin_main_pass(
 
     // add pass passthrough to finish rendering
     world.insert_resource(MainPassPassthrough(pass));
+
+    // update delta time using primary render schedule delta time (effectively the same)
+    delta_time.set(FlexLocalId::Schedule(*schedule.schedule_id()), *delta_time.get(FlexLocalId::Schedule(RENDER_SCHEDULE_ID)).lock_ref());
 }
 
 /// Execute the main render pass schedules through `MainRenderPassSchedule`.
