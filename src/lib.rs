@@ -1,7 +1,7 @@
 #![allow(ambiguous_glob_reexports)]
 
 use anarchy::{DeltaTime, FlexLocalId, Query, Res, ResMut, macros::{Resource, system}};
-use cell::{App, Frame, Graphics, Plugin, RENDER_SCHEDULE_ID};
+use cell::{App, Frame, Graphics, Plugin, RENDER_SCHEDULE_ID, WindowDimensions};
 use derive_more::{Deref, DerefMut};
 use magician_vgpu::{LoadOp, PassAttachment, PassTarget, SinglePass, StoreOp, glam::Vec4};
 
@@ -63,7 +63,8 @@ pub fn begin_main_pass(
     pipelines: ResMut<MaterialPipelineStorage>,
     camera: Query<&mut Camera>,
     schedule: Res<MainRenderPassSchedule>,
-    delta_time: Res<DeltaTime>
+    delta_time: Res<DeltaTime>,
+    window_dimensions: Res<WindowDimensions>
 ) {
     // get primary (first) camera
     let Some(mut camera) = camera.as_iter().next() else { return Ok(()) };
@@ -74,7 +75,8 @@ pub fn begin_main_pass(
             &*graphics, 
             FrameBufferKey::Depth, 
             DEPTH_FORMAT, 
-            wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING
+            wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            ***window_dimensions
         ).map(|depth_texture| {
             PassAttachment { 
                 target: PassTarget::Texture(depth_texture),

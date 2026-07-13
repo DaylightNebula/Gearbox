@@ -1,8 +1,8 @@
-use std::any::TypeId;
+use std::{any::TypeId, collections::hash_map::Entry};
 
 use ahash::AHashMap;
 use anarchy::macros::{Component, Getters, GettersMut, Setters};
-use magician_vgpu::{BindableObject, Buffer, MutableBuffer, StaticTexture, VirtualGpu, WritableBuffer, glam::{Mat4, Vec3}, rust};
+use magician_vgpu::{BindableObject, Buffer, MutableBuffer, StaticTexture, VirtualGpu, WritableBuffer, glam::{Mat4, UVec2, Vec3}, rust};
 use wgpu::BufferUsages;
 
 use crate::Transform;
@@ -90,13 +90,32 @@ impl Camera {
         vgpu: &VirtualGpu,
         key: FrameBufferKey,
         format: wgpu::TextureFormat,
-        usage: wgpu::TextureUsages
+        usage: wgpu::TextureUsages,
+        dimensions: UVec2
     ) -> Option<&StaticTexture> {
         if let Some(buffers) = self.buffers.as_mut() {
-            Some(
-                buffers.framebuffers.entry(key)
-                    .or_insert_with(|| StaticTexture::framebuffer(vgpu, format, usage))
-            )
+            // let buffer = buffers.framebuffers.get(&key);
+            // let is_buffer_valid = buffer.map(|buffer| 
+            //         buffer.texture.width() == dimensions.x && 
+            //         buffer.texture.height() == dimensions.y
+            //     ).unwrap_or(false);
+
+            // if is_buffer_valid { return buffer }
+
+            // let buffer = StaticTexture::framebuffer(vgpu, format, usage);
+            // buffers.framebuffers.insert(key, buffer);
+            // return buffers.framebuffers.get(&key);
+
+            let mut entry = buffers.framebuffers.entry(key);
+
+            if let Entry::Occupied(entry) = &mut entry {
+                let tex = &entry.get().texture;
+                if tex.width() != dimensions.x || tex.height() != dimensions.y {
+                    entry.insert(StaticTexture::framebuffer(vgpu, format, usage));
+                }
+            }
+
+            Some(entry.or_insert_with(|| StaticTexture::framebuffer(vgpu, format, usage)))
         } else {
             return None;
         }
