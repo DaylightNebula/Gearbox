@@ -12,6 +12,7 @@ pub mod mesh;
 pub mod schedule;
 pub mod shapes;
 pub mod transform;
+pub mod vault;
 
 pub use camera::*;
 pub use material::*;
@@ -19,6 +20,7 @@ pub use mesh::*;
 pub use schedule::*;
 pub use shapes::*;
 pub use transform::*;
+pub use vault::*;
 
 pub use shaders as shaders;
 pub use magician_vgpu::glam as glam;
