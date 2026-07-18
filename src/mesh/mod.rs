@@ -8,32 +8,32 @@ pub mod basic;
 
 pub use basic::*;
 
-/// Standard trait for any `Material` type.  All implemenator
-/// of `Material` given a `Component` implementation but all
-/// will have the same ID.
+/// Standard trait for any drawable mesh type. `id` identifies the concrete mesh type
+/// (shared by all instances of that type, used to key material/mesh pipelines), and
+/// `draw` binds the mesh's vertex/index/instance buffers and issues the draw call.
 pub trait Mesh: Any {
     fn id(&self) -> TypeId { TypeId::of::<Self>() }
 
     fn create_pipeline<'a>(
-        &'a self, 
+        &'a self,
         vgpu: &VirtualGpu
     ) -> PipelineBuilder<'a>;
 
     fn draw(
         &self,
         vgpu: &VirtualGpu,
-        pass: &mut SinglePass, 
+        pass: &mut SinglePass,
         entity: &anarchy::Entity
     );
 }
 
-
-// MAKE MATERIAL A COMPONENT BY DEFAULT THAT HAVE THE SAME ID'S
-
+/// A [`Component`](anarchy::Component) wrapping a type-erased [`Mesh`], attached to
+/// an entity alongside a [`MaterialRef`](crate::MaterialRef) to make it renderable.
 #[derive(Deref, DerefMut, Component)]
 pub struct MeshRef(pub Box<dyn Mesh>);
 
 impl MeshRef {
+    /// Wraps `mesh` in a `MeshRef` component.
     pub fn new<M: Mesh + 'static>(mesh: M) -> Self {
         Self(Box::new(mesh))
     }

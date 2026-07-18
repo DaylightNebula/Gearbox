@@ -1,8 +1,13 @@
+//! The standard vertex shader used by every mesh/material pairing in `gearbox`:
+//! transforms a per-vertex position by a per-instance model matrix and the camera's
+//! view-projection matrix.
+
 use bytemuck::{Pod, Zeroable};
 use magician_vgpu::rust::{macros::*, *};
 
 use crate::{common::CameraInput};
 
+/// Per-vertex mesh attributes, matching `gearbox::BasicMesh`'s vertex buffer layout.
 #[repr(C)]
 #[derive(Default, Pod, Zeroable, Clone, Copy, ShaderLayout)]
 pub struct VertexInput {
@@ -11,7 +16,8 @@ pub struct VertexInput {
     #[location = 2] pub normals: Vec3
 }
 
-
+/// Per-instance model matrix, passed as four `vec4` rows (`mm0..mm3`) since a
+/// `mat4` vertex attribute must be split across four shader locations.
 #[derive(ShaderLayout)]
 pub struct InstanceInput {
     #[location = 3] pub mm0: Vec4,
@@ -20,7 +26,7 @@ pub struct InstanceInput {
     #[location = 6] pub mm3: Vec4
 }
 
-
+/// Output of [`primary_vs_main`], consumed by the matching fragment shader.
 #[allow(unused)]
 #[derive(ShaderLayout)]
 pub struct VertexOutput {
@@ -28,7 +34,8 @@ pub struct VertexOutput {
     #[location = 0] pub uvs: Vec2
 }
 
-
+/// Transforms `model.position` by the instance's model matrix and the camera's
+/// view-projection matrix, passing UVs through unchanged.
 #[shader("./shader_out", vertex)]
 pub fn primary_vs_main(
     #[group = 1] cam_in: CameraInput,

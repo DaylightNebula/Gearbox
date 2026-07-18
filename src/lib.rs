@@ -1,3 +1,14 @@
+//! `gearbox` is an ECS-based renderer built on [`anarchy`] (ECS) and [`cell`] (app/windowing),
+//! using [`magician_vgpu`] for its GPU abstraction over `wgpu`.
+//!
+//! Register [`GearboxRenderPlugin`] with a `cell` [`App`] to get a main render pass that draws
+//! every entity carrying a [`Transform`], [`MaterialRef`], and [`MeshRef`], as seen through the
+//! first entity found with a [`Camera`] component. [`shapes`] provides a [`ShapeBuilder`] for
+//! generating primitive meshes, and [`vault`] provides a generic, not-yet-integrated
+//! asset-loading system for reference-counted GPU resources such as textures.
+//!
+//! This project is early and work in progress; little of the API is set in stone.
+
 #![allow(ambiguous_glob_reexports)]
 
 use anarchy::{DeltaTime, FlexLocalId, Query, Res, ResMut, macros::{Resource, system}};

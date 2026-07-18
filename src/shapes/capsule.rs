@@ -2,6 +2,10 @@ use std::f32::consts::PI;
 
 use crate::{glam::*, Shape, ShapeMeshData};
 
+/// A capsule (cylinder capped with two hemispheres) [`Shape`] centered on `offset`.
+/// `height` is the total end-to-end height including both hemispherical caps.
+/// `draw_instructions` overrides the default mesh resolution (16 segments, 16 rings)
+/// when set.
 pub struct Capsule {
     pub offset: Vec3,
     pub rotation: Quat,
@@ -10,6 +14,8 @@ pub struct Capsule {
     pub draw_instructions: Option<CapsuleDrawInstructions>
 }
 
+/// Mesh resolution for a [`Capsule`]: `segments` around the circumference and
+/// `rings` per hemispherical cap.
 pub struct CapsuleDrawInstructions {
     pub segments: u32,
     pub rings: u32

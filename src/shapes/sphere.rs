@@ -2,6 +2,9 @@ use std::f32::consts::PI;
 
 use crate::{Shape, ShapeMeshData, glam::*};
 
+/// A sphere [`Shape`] centered on `offset`, built by subdividing an icosahedron.
+/// `mesh_subdivisions` controls mesh detail (default 3 if `None`); values above
+/// 5 or 6 get expensive.
 pub struct Sphere {
     pub offset: Vec3,
     pub rotation: Quat,

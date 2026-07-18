@@ -16,13 +16,15 @@ pub struct BasicMesh {
 }
 
 impl BasicMesh {
+    /// Creates a `BasicMesh` from already-uploaded vertex and index buffers.
     pub fn from_raw(
-        vertex_buffer: ImmutableBuffer<[shaders::basic_vertex::VertexInput]>, 
+        vertex_buffer: ImmutableBuffer<[shaders::basic_vertex::VertexInput]>,
         index_buffer: ImmutableBuffer<[u32]>
     ) -> Self {
         Self { vertex_buffer, index_buffer, instance_buffer: CowData::null() }
     }
 
+    /// Uploads `vertices` and `indices` to the GPU and creates a `BasicMesh` from them.
     pub fn new(vgpu: &VirtualGpu, vertices: &[shaders::basic_vertex::VertexInput], indices: &[u32]) -> Self {
         Self {
             vertex_buffer: ImmutableBuffer::new(vgpu, vertices, BufferUsages::VERTEX),

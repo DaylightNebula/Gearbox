@@ -14,6 +14,7 @@ pub struct BasicMaterial {
 }
 
 impl BasicMaterial {
+    /// Creates a new `BasicMaterial` with the given flat RGBA `color`.
     pub fn new(color: Vec4) -> Self {
         Self { buffers: CowData::null(), color }
     }

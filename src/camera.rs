@@ -14,6 +14,12 @@ const OPENGL_TO_WGPU_MATRIX: Mat4 = Mat4::from_cols_array_2d(&[
     [0.0, 0.0, 0.5, 1.0]
 ]);
 
+/// A [`Component`](anarchy::Component) that turns an entity into a render camera.
+///
+/// Paired with a [`Transform`] on the same entity to determine view position; the
+/// GPU-side view/projection buffer and any framebuffers are lazily created on the
+/// first internal update and stored in `buffers`. `gearbox`'s main render pass
+/// (see [`crate::update_cameras`]) uses the first camera found in the world each frame.
 #[derive(Component, Getters, GettersMut, Setters)]
 pub struct Camera {
     fovy_radians: f32,
@@ -22,12 +28,19 @@ pub struct Camera {
     buffers: Option<CameraBuffers>
 }
 
+/// The lazily-initialized GPU resources backing a [`Camera`]: its view/projection
+/// uniform buffer, the bindable object exposing that buffer to shaders, and any
+/// framebuffers (e.g. depth) requested via [`Camera::get_or_compute_framebuffer`].
 pub struct CameraBuffers {
     buffer: MutableBuffer<[shaders::common::Camera]>,
     bindable: BindableObject<shaders::common::CameraInput>,
     framebuffers: AHashMap<FrameBufferKey, StaticTexture>
 }
 
+/// A key identifying one of a [`Camera`]'s auxiliary framebuffers (e.g. depth), as
+/// used by [`Camera::get_framebuffer`], [`Camera::set_framebuffer`], and
+/// [`Camera::get_or_compute_framebuffer`]. `Str` and `TypeId` variants let callers
+/// key framebuffers by their own identifiers without needing to extend this enum.
 #[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum FrameBufferKey {
     #[default]

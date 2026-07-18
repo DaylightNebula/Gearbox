@@ -1,5 +1,8 @@
 use crate::{glam::*, Shape, ShapeMeshData};
 
+/// A cylinder [`Shape`] centered on `offset`, with capped top and bottom.
+/// `segments` controls the number of sides used around the circumference
+/// (default 16 if `None`).
 pub struct Cylinder {
     pub offset: Vec3,
     pub rotation: Quat,
@@ -9,6 +12,7 @@ pub struct Cylinder {
 }
 
 impl Cylinder {
+    /// Creates a new `Cylinder` shape.
     pub fn new(
         offset: Vec3,
         rotation: Quat,

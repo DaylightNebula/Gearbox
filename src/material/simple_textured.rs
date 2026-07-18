@@ -6,10 +6,11 @@ use wgpu::ShaderStages;
 
 use crate::{Camera, Material, shaders};
 
+/// Depth format used by Gearbox's main render pass depth buffer and by materials
+/// that render into it (see [`Camera::get_or_compute_framebuffer`](crate::Camera::get_or_compute_framebuffer)).
 pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 
-/// A basic material that defines only a color to draw with the
-/// material with.
+/// A material that samples a single albedo texture, with no other lighting inputs.
 #[derive(Getters)]
 pub struct SimpleTexturedMaterial {
     buffers: CowData<BindableObject<shaders::simple_textured::SimpleTexturedMaterial>>,
@@ -17,10 +18,12 @@ pub struct SimpleTexturedMaterial {
 }
 
 impl SimpleTexturedMaterial {
+    /// Creates a new `SimpleTexturedMaterial` from an already-loaded `texture`.
     pub fn new(texture: StaticTexture) -> Self {
         Self { buffers: CowData::null(), texture }
     }
 
+    /// Decodes `bytes` as a PNG and creates a `SimpleTexturedMaterial` from it.
     pub fn from_png(vgpu: &VirtualGpu, bytes: &[u8]) -> anyhow::Result<Self> {
         let img = image::load_from_memory(bytes)?;
         let dimensions = img.dimensions();

@@ -1,5 +1,8 @@
 use crate::{glam::*, Shape, ShapeMeshData};
 
+/// A cone [`Shape`] centered on `offset`, with a capped circular base tapering
+/// to an apex. `segments` controls the number of sides used around the base
+/// (default 16 if `None`).
 pub struct Cone {
     pub offset: Vec3,
     pub rotation: Quat,
@@ -9,6 +12,7 @@ pub struct Cone {
 }
 
 impl Cone {
+    /// Creates a new `Cone` shape.
     pub fn new(
         offset: Vec3,
         rotation: Quat,

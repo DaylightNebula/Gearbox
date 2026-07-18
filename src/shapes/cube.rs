@@ -1,5 +1,6 @@
 use crate::{glam::*, Shape, ShapeMeshData};
 
+/// A box [`Shape`] centered on `offset`, spanning `width` x `height` x `depth`.
 pub struct Cube {
     pub offset: Vec3,
     pub rotation: Quat,
@@ -9,6 +10,7 @@ pub struct Cube {
 }
 
 impl Cube {
+    /// Creates a new `Cube` shape.
     pub fn new(offset: Vec3, rotation: Quat, width: f32, height: f32, depth: f32) -> Self {
         Self { offset, rotation, width, height, depth }
     }

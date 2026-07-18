@@ -1,7 +1,7 @@
 //! `vault` is a generic asset-loading and lifecycle system: [`Asset`] defines a loadable
 //! asset type, [`AssetVault`] stores and reference-counts loaded instances of that type
 //! behind cheap-to-clone [`Handle`]s, and [`BindableAssetVault`] extends a vault with the
-//! ability to bind its assets to a GPU render pass. See [`textures`] for a concrete
+//! ability to bind its assets to a GPU render pass. See [`bindless_textures`] for a concrete
 //! example vault implementation.
 
 use anarchy::Resource;

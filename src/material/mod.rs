@@ -20,22 +20,23 @@ pub struct MaterialPipelineStorage {
     pipelines: AHashMap<(TypeId, TypeId), CowData<Pipeline>>
 }
 
-/// Standard trait for any `Material` type.  All implemenator
-/// of `Material` given a `Component` implementation but all
-/// will have the same ID.
+/// Standard trait for any `Material` type. `id` identifies the concrete material type
+/// (shared by all instances of that type, used to key material/mesh pipelines in
+/// [`MaterialPipelineStorage`]), `create_pipeline` builds the render pipeline for
+/// this material, and `prep_render_entity` binds per-entity buffers before drawing.
 pub trait Material: Any {
     fn id(&self) -> TypeId { TypeId::of::<Self>() }
     fn create_pipeline<'a>(&'a self, vgpu: &VirtualGpu) -> PipelineBuilder<'a>;
     fn prep_render_entity(&self, vgpu: &VirtualGpu, pass: &mut SinglePass, camera: &Camera, entity: &Entity);
 }
 
-
-// MAKE MATERIAL A COMPONENT BY DEFAULT THAT HAVE THE SAME ID'S
-
+/// A [`Component`](anarchy::Component) wrapping a type-erased [`Material`], attached to
+/// an entity alongside a [`MeshRef`](crate::MeshRef) to make it renderable.
 #[derive(Deref, DerefMut, Component)]
 pub struct MaterialRef(pub Box<dyn Material>);
 
 impl MaterialRef {
+    /// Wraps `material` in a `MaterialRef` component.
     pub fn new<M: Material>(material: M) -> Self {
         MaterialRef(Box::new(material))
     }

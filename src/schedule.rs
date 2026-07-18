@@ -64,6 +64,7 @@ impl MainRenderPassSchedule {
     }
 }
 
+/// Registers [`render_mesh_material`] to run on every update of the main render pass schedule.
 #[system]
 pub fn setup(
     schedule: Res<MainRenderPassSchedule>
