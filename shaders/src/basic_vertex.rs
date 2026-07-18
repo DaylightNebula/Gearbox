@@ -4,19 +4,20 @@ use magician_vgpu::rust::{macros::*, *};
 use crate::{common::CameraInput};
 
 #[repr(C)]
-#[derive(Pod, Zeroable, Clone, Copy, ShaderLayout)]
+#[derive(Default, Pod, Zeroable, Clone, Copy, ShaderLayout)]
 pub struct VertexInput {
     #[location = 0] pub position: Vec3,
-    #[location = 1] pub uvs: Vec2
+    #[location = 1] pub uvs: Vec2,
+    #[location = 2] pub normals: Vec3
 }
 
 
 #[derive(ShaderLayout)]
 pub struct InstanceInput {
-    #[location = 2] pub mm0: Vec4,
-    #[location = 3] pub mm1: Vec4,
-    #[location = 4] pub mm2: Vec4,
-    #[location = 5] pub mm3: Vec4
+    #[location = 3] pub mm0: Vec4,
+    #[location = 4] pub mm1: Vec4,
+    #[location = 5] pub mm2: Vec4,
+    #[location = 6] pub mm3: Vec4
 }
 
 

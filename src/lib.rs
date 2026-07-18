@@ -4,21 +4,24 @@ use anarchy::{DeltaTime, FlexLocalId, Query, Res, ResMut, macros::{Resource, sys
 use cell::{App, Frame, Graphics, Plugin, RENDER_SCHEDULE_ID, WindowDimensions};
 use derive_more::{Deref, DerefMut};
 use magician_vgpu::{LoadOp, PassAttachment, PassTarget, SinglePass, StoreOp, glam::Vec4};
+use mutual::SharedData;
 
 pub mod camera;
 pub mod material;
 pub mod mesh;
 pub mod schedule;
+pub mod shapes;
 pub mod transform;
 
 pub use camera::*;
 pub use material::*;
 pub use mesh::*;
-use mutual::SharedData;
 pub use schedule::*;
+pub use shapes::*;
 pub use transform::*;
 
 pub use shaders as shaders;
+pub use magician_vgpu::glam as glam;
 
 /// The primary plugin used by Gearbox renderer.
 pub struct GearboxRenderPlugin;
