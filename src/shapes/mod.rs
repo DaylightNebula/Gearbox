@@ -201,8 +201,6 @@ impl ShapeBuilder {
             .collect::<anyhow::Result<Vec<(Vec3, Quat, ShapeMeshData)>>>()?;
 
         // create final storage for vertices and indices
-        let mut vidx = 0;
-        let mut iidx = 0;
         let mut vertices = Vec::with_capacity(num_vertices);
         let mut indices = Vec::with_capacity(num_indices);
         mesh_data.iter().for_each(|(offset, rotation, mesh_data)| {
@@ -214,25 +212,14 @@ impl ShapeBuilder {
             
             // transform and save vertices
             mesh_data.vertices.iter().for_each(|vertex| {
-                let start = vidx;
-                let end = start + 1;
-                vidx += 1;
-
-                let vertex = shaders::basic_vertex::VertexInput {
+                vertices.push(shaders::basic_vertex::VertexInput {
                     position: transform.transform_point3(vertex.position.into()).into(),
                     uvs: vertex.uvs,
                     normals: vertex.normals
-                };
-
-                // let bytes = bytemuck::bytes_of(&vertex);
-                // let target = &mut vertices[start .. end];
-                // let _ = target.copy_from_slice(&[vertex]);
-                vertices.push(vertex);
+                });
             });
 
             // save indices
-            // indices[iidx .. iidx + mesh_data.indices.len()].copy_from_slice(&mesh_data.indices);
-            // iidx += mesh_data.indices.len();
             indices.extend_from_slice(&mesh_data.indices);
         });
 
