@@ -1,4 +1,4 @@
-use anarchy::macros::Getters;
+use anarchy::macros::{AsAny, Getters};
 use magician_vgpu::{BindGroupProvider, BindableObject, MutableBuffer, Pipeline, ShaderSource, ShaderType, SinglePass, VirtualGpu, glam::Vec4};
 use mutual::CowData;
 use wgpu::{BufferUsages, ShaderStages};
@@ -7,7 +7,7 @@ use crate::{Camera, Material, shaders};
 
 /// A basic material that defines only a color to draw with the
 /// material with.
-#[derive(Clone, Getters)]
+#[derive(Clone, Getters, AsAny)]
 pub struct BasicMaterial {
     buffers: CowData<BindableObject<shaders::basic_material::BasicMaterial>>,
     color: Vec4

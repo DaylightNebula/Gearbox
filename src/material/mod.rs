@@ -4,7 +4,7 @@ use ahash::AHashMap;
 use anarchy::{Entity, macros::{Component, Resource}};
 use derive_more::{Deref, DerefMut};
 use magician_vgpu::{Pipeline, PipelineBuilder, SinglePass, VirtualGpu};
-use mutual::CowData;
+use mutual::{AsAny, CowData};
 
 use crate::Camera;
 
@@ -24,7 +24,7 @@ pub struct MaterialPipelineStorage {
 /// (shared by all instances of that type, used to key material/mesh pipelines in
 /// [`MaterialPipelineStorage`]), `create_pipeline` builds the render pipeline for
 /// this material, and `prep_render_entity` binds per-entity buffers before drawing.
-pub trait Material: Any {
+pub trait Material: Any + AsAny {
     fn id(&self) -> TypeId { TypeId::of::<Self>() }
     fn create_pipeline<'a>(&'a self, vgpu: &VirtualGpu) -> PipelineBuilder<'a>;
     fn prep_render_entity(&self, vgpu: &VirtualGpu, pass: &mut SinglePass, camera: &Camera, entity: &Entity);

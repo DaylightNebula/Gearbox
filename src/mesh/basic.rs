@@ -1,4 +1,4 @@
-use anarchy::{ComponentMeta, extract_comps_distributed, macros::Getters};
+use anarchy::{ComponentMeta, extract_comps_distributed, macros::{AsAny, Getters}};
 use magician_vgpu::{DrawSettings, ImmutableBuffer, MutableBuffer, Pipeline, PipelineBuilder, ShaderSource, ShaderType, SinglePass, VirtualGpu, WritableBuffer, glam::Mat4};
 use mutual::{CastableSharedData, CowData, RefCastGuard};
 use wgpu::BufferUsages;
@@ -8,7 +8,7 @@ use crate::{Mesh, Transform, shaders};
 
 /// A basic mesh with a simple vertex determined by `shaders::common::VertexInput` 
 /// and a `Mat4` instance.
-#[derive(Getters)]
+#[derive(Getters, AsAny)]
 pub struct BasicMesh {
     pub vertex_buffer: ImmutableBuffer<[shaders::basic_vertex::VertexInput]>,
     pub index_buffer: ImmutableBuffer<[u32]>,

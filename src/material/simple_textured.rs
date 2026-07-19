@@ -1,4 +1,4 @@
-use anarchy::{anyhow, macros::Getters};
+use anarchy::{anyhow, macros::{AsAny, Getters}};
 use image::GenericImageView;
 use magician_vgpu::{BindGroupProvider, BindableObject, Pipeline, ShaderSource, ShaderType, SinglePass, StaticTexture, TextureDescriptor, VirtualGpu};
 use mutual::CowData;
@@ -11,7 +11,7 @@ use crate::{Camera, Material, shaders};
 pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 
 /// A material that samples a single albedo texture, with no other lighting inputs.
-#[derive(Getters)]
+#[derive(Getters, AsAny)]
 pub struct SimpleTexturedMaterial {
     buffers: CowData<BindableObject<shaders::simple_textured::SimpleTexturedMaterial>>,
     texture: StaticTexture
