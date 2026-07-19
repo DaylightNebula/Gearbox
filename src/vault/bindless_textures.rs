@@ -4,8 +4,8 @@
 use std::{hash::{Hash, Hasher}, marker::PhantomData, sync::{Arc, atomic::{AtomicBool, Ordering}}};
 
 use ahash::AHasher;
-use anarchy::macros::{Getters, Resource};
-use anyhow::bail;
+use anarchy::{anyhow, macros::{Getters, Resource}};
+use anarchy::anyhow::bail;
 use derive_more::{Deref, DerefMut};
 use image::{GenericImageView, ImageBuffer, Rgba};
 use magician_vgpu::{SinglePass, StaticTexture, Texture, VirtualGpu, glam::UVec2};

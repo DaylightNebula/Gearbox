@@ -1,7 +1,7 @@
 use std::collections::LinkedList;
 
 use ahash::AHashMap;
-use anarchy::{ComponentMeta, MaskBuilder, Query, Res, ResMut, Schedule, ScheduleID, ScheduleTile, System, World, execute_schedule_sync, extract_comps, macros::{Getters, Resource, system}};
+use anarchy::{ComponentMeta, MaskBuilder, Query, Res, ResMut, Schedule, ScheduleID, ScheduleTile, System, World, anyhow, execute_schedule_sync, extract_comps, macros::{Getters, Resource, system}};
 use cell::{App, Graphics, Plugin};
 use mutual::{CastableSharedData, CowData, RefCastGuard};
 
@@ -35,7 +35,7 @@ impl MainRenderPassSchedule {
 
     /// Add a system to run on startup of the main pass schedule.
     pub fn on_startup<S>(&self, system: S) 
-        where S: System<(), Result<(), Box<dyn std::error::Error>>> + 'static
+        where S: System<(), anyhow::Result<()>> + 'static
     {
         let tile = ScheduleTile::new(vec![Box::new(system)]);
         self.schedule.get_ref().add_startup(tile);
@@ -43,7 +43,7 @@ impl MainRenderPassSchedule {
 
     /// Add a system to run on update of the main pass schedule.
     pub fn on_update<S>(&self, system: S) 
-        where S: System<(), Result<(), Box<dyn std::error::Error>>> + 'static
+        where S: System<(), anyhow::Result<()>> + 'static
     {
         let tile = ScheduleTile::new(vec![Box::new(system)]);
         self.schedule.get_ref().add_new(tile);
@@ -65,7 +65,7 @@ impl MainRenderPassSchedule {
 }
 
 /// Registers [`render_mesh_material`] to run on every update of the main render pass schedule.
-#[system]
+#[system(1)]
 pub fn setup(
     schedule: Res<MainRenderPassSchedule>
 ) {

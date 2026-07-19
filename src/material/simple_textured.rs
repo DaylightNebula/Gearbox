@@ -1,4 +1,4 @@
-use anarchy::macros::Getters;
+use anarchy::{anyhow, macros::Getters};
 use image::GenericImageView;
 use magician_vgpu::{BindGroupProvider, BindableObject, Pipeline, ShaderSource, ShaderType, SinglePass, StaticTexture, TextureDescriptor, VirtualGpu};
 use mutual::CowData;

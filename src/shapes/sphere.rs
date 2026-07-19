@@ -1,5 +1,7 @@
 use std::f32::consts::PI;
 
+use anarchy::anyhow;
+
 use crate::{Shape, ShapeMeshData, glam::*};
 
 /// A sphere [`Shape`] centered on `offset`, built by subdividing an icosahedron.

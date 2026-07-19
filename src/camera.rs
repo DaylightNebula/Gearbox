@@ -1,7 +1,7 @@
 use std::{any::TypeId, collections::hash_map::Entry};
 
 use ahash::AHashMap;
-use anarchy::macros::{Component, Getters, GettersMut, Setters};
+use anarchy::{anyhow, macros::{Component, Getters, GettersMut, Setters}};
 use magician_vgpu::{BindableObject, Buffer, MutableBuffer, StaticTexture, VirtualGpu, WritableBuffer, glam::{Mat4, UVec2, Vec3}, rust};
 use wgpu::BufferUsages;
 

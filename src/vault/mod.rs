@@ -4,7 +4,7 @@
 //! ability to bind its assets to a GPU render pass. See [`bindless_textures`] for a concrete
 //! example vault implementation.
 
-use anarchy::Resource;
+use anarchy::{Resource, anyhow};
 use magician_vgpu::{SinglePass, VirtualGpu};
 use mutual::Ref;
 

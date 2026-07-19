@@ -1,4 +1,4 @@
-use anarchy::{EntityBuilder, Query, World, WorldDatabase};
+use anarchy::{EntityBuilder, Query, World, WorldDatabase, anyhow};
 use anarchy::{Res, macros::system};
 use cell::{App, Graphics};
 use gearbox::{GearboxRenderPlugin, MaterialRef, MeshRef, ShapeBuilder, SimpleTexturedMaterial, glam::*};

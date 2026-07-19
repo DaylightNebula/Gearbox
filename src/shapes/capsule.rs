@@ -1,5 +1,7 @@
 use std::f32::consts::PI;
 
+use anarchy::anyhow;
+
 use crate::{glam::*, Shape, ShapeMeshData};
 
 /// A capsule (cylinder capped with two hemispheres) [`Shape`] centered on `offset`.

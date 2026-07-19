@@ -115,6 +115,7 @@ pub fn begin_main_pass(
 
     // add pass passthrough to finish rendering
     world.insert_resource(MainPassPassthrough(pass));
+    println!("Added main passthrough");
 
     // update delta time using primary render schedule delta time (effectively the same)
     delta_time.set(FlexLocalId::Schedule(*schedule.schedule_id()), *delta_time.get(FlexLocalId::Schedule(RENDER_SCHEDULE_ID)).lock_ref());
@@ -123,6 +124,7 @@ pub fn begin_main_pass(
 /// Execute the main render pass schedules through `MainRenderPassSchedule`.
 #[system(1)]
 fn execute_render_schedule(schedule: Res<MainRenderPassSchedule>) {
+    if world.get_resource_ref::<MainPassPassthrough>().is_none() { return Ok(()) }
     schedule.execute(world);
 }
 
