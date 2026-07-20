@@ -4,14 +4,25 @@
 use std::{hash::{Hash, Hasher}, marker::PhantomData, sync::{Arc, atomic::{AtomicBool, Ordering}}};
 
 use ahash::AHasher;
-use anarchy::{anyhow, macros::{Getters, Resource}};
+use anarchy::{Res, anyhow, macros::{Getters, Resource, system}};
 use anarchy::anyhow::bail;
+use cell::{App, Graphics, Plugin};
 use derive_more::{Deref, DerefMut};
 use image::{GenericImageView, ImageBuffer, Rgba};
 use magician_vgpu::{SinglePass, StaticTexture, Texture, VirtualGpu, glam::UVec2};
 use mutual::{CowData, DashMap, Ref, RefGuard, RelaxedMutex, SharedData};
 
 use crate::{Asset, AssetContent, AssetVault, BindableAssetVault, Handle, HandleInner};
+
+/// Plugin that adds the [`BindlessArrayTextureVault`] asset vault resource to the
+/// app as well as the needed upkeep systems.
+pub struct BindlessTexturesPlugin;
+impl Plugin for BindlessTexturesPlugin {
+    fn build(self, app: App) -> App {
+        app.add_resource(BindlessArrayTextureVault::default())
+            .on_render_update(update_bindless_textures)
+    }
+}
 
 /// A single texture uploaded into a [`BindlessArrayTextureVault`]'s bindless array.
 #[derive(Getters)]
@@ -95,7 +106,7 @@ impl AssetVault for BindlessArrayTextureVault {
         let mut hasher = AHasher::default();
         content.hash(&mut hasher);
         let hash = hasher.finish();
-        
+
         // get previous handle
         if let Some(value) = self.texture_map.get(&hash) { return Ok(value.0.clone()) };
         if let Some(value) = self.unloaded_textures.get(&hash) { return Ok(value.0.clone()) };
@@ -123,7 +134,7 @@ impl BindableAssetVault for BindlessArrayTextureVault {
                     entries: &[
                         wgpu::BindGroupLayoutEntry {
                             binding: 0,
-                            visibility: wgpu::ShaderStages::FRAGMENT,
+                            visibility: wgpu::ShaderStages::FRAGMENT | wgpu::ShaderStages::VERTEX,
                             ty: wgpu::BindingType::Texture {
                                 sample_type: wgpu::TextureSampleType::Float { filterable: true },
                                 view_dimension: wgpu::TextureViewDimension::D2,
@@ -133,7 +144,7 @@ impl BindableAssetVault for BindlessArrayTextureVault {
                         },
                         wgpu::BindGroupLayoutEntry {
                             binding: 1,
-                            visibility: wgpu::ShaderStages::FRAGMENT,
+                            visibility: wgpu::ShaderStages::FRAGMENT | wgpu::ShaderStages::VERTEX,
                             ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                             count: None
                         }
@@ -142,79 +153,87 @@ impl BindableAssetVault for BindlessArrayTextureVault {
             );
     }
 
-    fn bind(&self, vgpu: &VirtualGpu, pass: &mut SinglePass, bind_group: u32) {
-        // get all unloaded keys
-        let unloaded_keys: Vec<u64> = self.unloaded_textures.iter()
-            .map(|a| *a.key())
-            .collect();
-
-        // loop through all unloaded keys, then mark dirty
-        if !unloaded_keys.is_empty() {
-            for key in unloaded_keys.into_iter() {
-                // remove from unloaded cache
-                let Some((_hash, (handle, rgba, dimensions))) = 
-                    self.unloaded_textures.remove(&key) else { continue };
-
-                // create new texture
-                let texture = StaticTexture::from_raw(
-                    vgpu, 
-                    magician_vgpu::TextureDescriptor {
-                        format: wgpu::TextureFormat::Rgba8UnormSrgb,
-                        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-                        ..Default::default()
-                    }, 
-                    &rgba, 
-                    dimensions.x, 
-                    dimensions.y
-                );
-
-                // save texture
-                let texture_idx = self.texture_arr.lock_ref().len();
-                self.texture_arr.lock_mut().push(BindlessArrayTextureAsset { texture, texture_idx });
-                self.texture_map.insert(key, (handle, texture_idx));
-            }
-            self.dirty.store(true, Ordering::Release);
-        }
-
-        // check if bind group needs rebuilding
-        if self.dirty.swap(false, Ordering::AcqRel) || self.bind_group.is_null() {
-            let binding = self.texture_arr.lock_ref();
-            let views = binding
-                .iter()
-                .map(|a| a.texture.view())
-                .collect::<Vec<_>>();
-
-            let bgl = self.bind_group_layout(vgpu);
-
-            let sampler = vgpu.device().create_sampler(&wgpu::SamplerDescriptor {
-                label: Some("binding_array_textures_sampler"),
-                address_mode_u: wgpu::AddressMode::ClampToEdge,
-                address_mode_v: wgpu::AddressMode::ClampToEdge,
-                address_mode_w: wgpu::AddressMode::ClampToEdge,
-                mag_filter: wgpu::FilterMode::Linear,
-                min_filter: wgpu::FilterMode::Linear,
-                mipmap_filter: wgpu::MipmapFilterMode::Nearest,
-                ..Default::default()
-            });
-
-            let bind_group = vgpu.device().create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("binding_array_textures_bg"),
-                layout: &bgl,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureViewArray(&views),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&sampler),
-                    },
-                ],
-            });
-
-            self.bind_group.set(bind_group);
-        }
-
+    fn bind(&self, _vgpu: &VirtualGpu, pass: &mut SinglePass, bind_group: u32) {
+        if self.bind_group.is_null() { return }
         pass.bind_raw(bind_group, &self.bind_group.get_ref());
+    }
+}
+
+
+#[system(std::i32::MIN)]
+pub fn update_bindless_textures(
+    graphics: Res<Graphics>,
+    vault: Res<BindlessArrayTextureVault>
+) {
+    // get all unloaded keys
+    let unloaded_keys: Vec<u64> = vault.unloaded_textures.iter()
+        .map(|a| *a.key())
+        .collect();
+
+    // loop through all unloaded keys, then mark dirty
+    if !unloaded_keys.is_empty() {
+        for key in unloaded_keys.into_iter() {
+            // remove from unloaded cache
+            let Some((_hash, (handle, rgba, dimensions))) = 
+                vault.unloaded_textures.remove(&key) else { continue };
+
+            // create new texture
+            let texture = StaticTexture::from_raw(
+                &*graphics, 
+                magician_vgpu::TextureDescriptor {
+                    format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                    usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                    ..Default::default()
+                }, 
+                &rgba, 
+                dimensions.x, 
+                dimensions.y
+            );
+
+            // save texture
+            let texture_idx = vault.texture_arr.lock_ref().len();
+            vault.texture_arr.lock_mut().push(BindlessArrayTextureAsset { texture, texture_idx });
+            vault.texture_map.insert(key, (handle, texture_idx));
+        }
+        vault.dirty.store(true, Ordering::Release);
+    }
+
+    // check if bind group needs rebuilding
+    if vault.dirty.swap(false, Ordering::AcqRel) || vault.bind_group.is_null() {
+        let binding = vault.texture_arr.lock_ref();
+        let views = binding
+            .iter()
+            .map(|a| a.texture.view())
+            .collect::<Vec<_>>();
+
+        let bgl = vault.bind_group_layout(&graphics);
+
+        let sampler = graphics.device().create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("binding_array_textures_sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Nearest,
+            ..Default::default()
+        });
+
+        let bind_group = graphics.device().create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("binding_array_textures_bg"),
+            layout: &bgl,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureViewArray(&views),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+            ],
+        });
+
+        vault.bind_group.set(bind_group);
     }
 }

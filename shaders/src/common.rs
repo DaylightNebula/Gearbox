@@ -18,3 +18,9 @@ pub struct Camera {
     pub view_pos: Vec4,
     pub view_proj: Mat4
 }
+
+#[derive(ShaderGroup, BindableObject)]
+pub struct BindlessTextures {
+    pub textures: BindlessArray<Texture2D>,
+    pub global_sampler: Sampler
+}

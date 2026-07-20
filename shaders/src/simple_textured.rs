@@ -2,14 +2,13 @@
 
 use magician_vgpu::{macros::BindableObject, rust::{macros::*, *}};
 
-use crate::{basic_vertex::VertexOutput, common::CameraInput};
+use crate::{basic_vertex::VertexOutput, common::{BindlessTextures, CameraInput}};
 
 /// The bindable shader group exposing `gearbox::SimpleTexturedMaterial`'s texture
 /// and sampler, bound at group 0.
 #[derive(ShaderGroup, BindableObject)]
 pub struct SimpleTexturedMaterial {
-    pub albedo_texture: Texture2D,
-    pub albedo_sampler: Sampler
+    #[uniform] pub texture_id: u32
 }
 
 /// Output of [`simple_textured_main`]: the final fragment color.
@@ -25,8 +24,9 @@ pub struct FragmentOutput {
 pub fn simple_textured_main(
     #[group = 0] material: SimpleTexturedMaterial,
     #[group = 1] _cam_in: CameraInput,
+    #[group = 2] textures: BindlessTextures,
     input: VertexOutput
 ) -> FragmentOutput {
-    let color = textureSample(material.albedo_texture, material.albedo_sampler, input.uvs);
+    let color = textureSample(textures.textures[material.texture_id as usize], textures.global_sampler, input.uvs);
     return FragmentOutput { color };
 }

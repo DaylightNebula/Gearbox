@@ -41,6 +41,7 @@ pub struct GearboxRenderPlugin;
 impl Plugin for GearboxRenderPlugin {
     fn build(self, app: App) -> App {
         app.add_plugin(MainRenderPassPlugin)
+            .add_plugin(BindlessTexturesPlugin)
             .add_resource(MaterialPipelineStorage::default())
             .on_render_update(update_cameras)
             .on_render_update(begin_main_pass)

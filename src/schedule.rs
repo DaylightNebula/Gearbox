@@ -108,7 +108,7 @@ fn render_mesh_material(
             // ensure pipeline exists for material
             let mesh_mat_key = (mesh.id(), material.id());
             if !pipelines.contains_key(&mesh_mat_key) {
-                let pipeline = material.create_pipeline(&*graphics)
+                let pipeline = material.create_pipeline(&*graphics)?
                     .merge(mesh.create_pipeline(&*graphics))
                     .build(&*graphics);
                 pipelines.insert(mesh_mat_key, CowData::new(pipeline));
@@ -127,12 +127,14 @@ fn render_mesh_material(
 
         pass.use_pipeline(pipeline.get_ref());
         for (material, mesh, entity) in material_list {
-            material.prep_render_entity(
+            let mat_result = material.prep_render_entity(
                 &*graphics, 
                 &mut pass, 
+                world,
                 &camera, 
                 &*entity
             );
+            if mat_result.is_err() { continue }
 
             mesh.draw(&*graphics, &mut pass, entity);
         }

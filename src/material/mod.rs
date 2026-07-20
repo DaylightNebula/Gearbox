@@ -1,7 +1,7 @@
 use std::any::{Any, TypeId};
 
 use ahash::AHashMap;
-use anarchy::{Entity, macros::{Component, Resource}};
+use anarchy::{Entity, World, anyhow, macros::{Component, Resource}};
 use derive_more::{Deref, DerefMut};
 use magician_vgpu::{Pipeline, PipelineBuilder, SinglePass, VirtualGpu};
 use mutual::{AsAny, CowData};
@@ -26,8 +26,20 @@ pub struct MaterialPipelineStorage {
 /// this material, and `prep_render_entity` binds per-entity buffers before drawing.
 pub trait Material: Any + AsAny {
     fn id(&self) -> TypeId { TypeId::of::<Self>() }
-    fn create_pipeline<'a>(&'a self, vgpu: &VirtualGpu) -> PipelineBuilder<'a>;
-    fn prep_render_entity(&self, vgpu: &VirtualGpu, pass: &mut SinglePass, camera: &Camera, entity: &Entity);
+
+    fn create_pipeline<'a>(
+        &'a self, 
+        vgpu: &VirtualGpu
+    ) -> anyhow::Result<PipelineBuilder<'a>>;
+
+    fn prep_render_entity(
+        &self, 
+        vgpu: &VirtualGpu, 
+        pass: &mut SinglePass, 
+        world: &World,
+        camera: &Camera, 
+        entity: &Entity
+    ) -> anyhow::Result<()>;
 }
 
 /// A [`Component`](anarchy::Component) wrapping a type-erased [`Material`], attached to

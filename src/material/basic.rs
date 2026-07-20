@@ -1,5 +1,5 @@
-use anarchy::macros::{AsAny, Getters};
-use magician_vgpu::{BindGroupProvider, BindableObject, MutableBuffer, Pipeline, ShaderSource, ShaderType, SinglePass, VirtualGpu, glam::Vec4};
+use anarchy::{World, anyhow, macros::{AsAny, Getters}};
+use magician_vgpu::{BindGroupProvider, BindableObject, MutableBuffer, Pipeline, PipelineBuilder, ShaderSource, ShaderType, SinglePass, VirtualGpu, glam::Vec4};
 use mutual::CowData;
 use wgpu::{BufferUsages, ShaderStages};
 
@@ -21,30 +21,33 @@ impl BasicMaterial {
 }
 
 impl Material for BasicMaterial {
-    fn create_pipeline<'a>(&'a self, vgpu: &magician_vgpu::VirtualGpu) -> magician_vgpu::PipelineBuilder<'a> {
-        Pipeline::builder("Normal Shader")
-            .source(
-                ShaderType::Fragment, 
-                ShaderSource {
-                    source: shaders::basic_material::SHADER_primary_fs_main.into(),
-                    main_function: "primary_fs_main".into()
-                }
-            )
-            .depth_format(wgpu::TextureFormat::Depth32Float)
-            .layout_raw::<shaders::basic_material::BasicMaterial>(0, shaders::basic_material::BasicMaterial::layout(vgpu, ShaderStages::VERTEX_FRAGMENT))
-            .layout_raw::<shaders::common::CameraInput>(1, shaders::common::CameraInput::layout(vgpu, ShaderStages::VERTEX_FRAGMENT))
+    fn create_pipeline<'a>(&'a self, vgpu: &magician_vgpu::VirtualGpu) -> anyhow::Result<PipelineBuilder<'a>> {
+        Ok(
+            Pipeline::builder("Normal Shader")
+                .source(
+                    ShaderType::Fragment, 
+                    ShaderSource {
+                        source: shaders::basic_material::SHADER_primary_fs_main.into(),
+                        main_function: "primary_fs_main".into()
+                    }
+                )
+                .depth_format(wgpu::TextureFormat::Depth32Float)
+                .layout_raw::<shaders::basic_material::BasicMaterial>(0, shaders::basic_material::BasicMaterial::layout(vgpu, ShaderStages::VERTEX_FRAGMENT))
+                .layout_raw::<shaders::common::CameraInput>(1, shaders::common::CameraInput::layout(vgpu, ShaderStages::VERTEX_FRAGMENT))
+        )
     }
 
     fn prep_render_entity(
         &self,
         vgpu: &VirtualGpu, 
         pass: &mut SinglePass, 
+        _world: &World,
         camera: &Camera, 
         _entity: &anarchy::Entity
-    ) {
+    ) -> anyhow::Result<()> {
         // get camera bindable or fail
         let Some(bindable) = camera.bindable()
-            else { return };
+            else { return Ok(()) };
 
         if self.buffers.is_null() {
             let material_buffer = MutableBuffer::new(vgpu, &self.color.into(), BufferUsages::UNIFORM);
@@ -56,5 +59,7 @@ impl Material for BasicMaterial {
         // draw buffers
         pass.bind(bindable);
         pass.bind(&self.buffers.get_ref());
+
+        Ok(())
     }
 }
