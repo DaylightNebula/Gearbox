@@ -1,9 +1,9 @@
-//! Shader types shared across materials: the camera uniform bound in bind group 1.
+//! Shader types shared across materials: the camera uniform bound in bind group 2.
 
 use bytemuck::{Pod, Zeroable};
 use magician_vgpu::{macros::*, rust::{macros::*, *}};
 
-/// The bindable shader group exposing a [`Camera`] uniform, bound at group 1 by
+/// The bindable shader group exposing a [`Camera`] uniform, bound at group 2 by
 /// every material/mesh pipeline in `gearbox`.
 #[derive(ShaderGroup, BindableObject)]
 pub struct CameraInput {

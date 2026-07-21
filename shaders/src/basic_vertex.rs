@@ -38,7 +38,7 @@ pub struct VertexOutput {
 /// view-projection matrix, passing UVs through unchanged.
 #[shader("./shader_out", vertex)]
 pub fn primary_vs_main(
-    #[group = 1] cam_in: CameraInput,
+    #[group = 2] cam_in: CameraInput,
     model: VertexInput,
     instance: InstanceInput
 ) -> VertexOutput {

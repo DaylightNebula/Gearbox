@@ -4,7 +4,7 @@
 use std::{hash::{Hash, Hasher}, marker::PhantomData, sync::{Arc, atomic::{AtomicBool, Ordering}}};
 
 use ahash::AHasher;
-use anarchy::{Res, anyhow, macros::{Getters, Resource, system}};
+use anarchy::{Res, Scheduler, anyhow, macros::{Getters, Resource, system}};
 use anarchy::anyhow::bail;
 use cell::{App, Graphics, Plugin};
 use derive_more::{Deref, DerefMut};
@@ -53,14 +53,16 @@ pub struct BindlessArrayTextureVault(Arc<BindlessArrayTextureVaultInner>);
 
 /// Shared state backing a [`BindlessArrayTextureVault`].
 ///
-/// Newly loaded images are staged in `unloaded_textures` (decoded, but not yet on
-/// the GPU) and are only uploaded into `texture_arr` and moved into `texture_map`
-/// the next time [`BindableAssetVault::bind`] runs, at which point the bind group
-/// is rebuilt if `dirty`.
+/// A hash's handle lives in exactly one of three maps at a time, moving left to right:
+/// `pending_loads` (content fetch/decode in flight) -> `unloaded_textures` (decoded,
+/// not yet on the GPU) -> `texture_map` (uploaded). `unloaded_textures` is drained and
+/// uploaded into `texture_arr` the next time [`BindableAssetVault::bind`] runs, at
+/// which point the bind group is rebuilt if `dirty`.
 pub struct BindlessArrayTextureVaultInner {
     texture_map: DashMap<u64, (Handle<BindlessArrayTextureAsset>, usize)>,
     texture_arr: RelaxedMutex<Vec<BindlessArrayTextureAsset>>,
     unloaded_textures: DashMap<u64, (Handle<BindlessArrayTextureAsset>, ImageBuffer<Rgba<u8>, Vec<u8>>, UVec2)>,
+    pending_loads: DashMap<u64, Handle<BindlessArrayTextureAsset>>,
     bind_group: CowData<wgpu::BindGroup>,
     dirty: AtomicBool
 }
@@ -77,6 +79,7 @@ impl Default for BindlessArrayTextureVaultInner {
             texture_map: DashMap::default(),
             texture_arr: RelaxedMutex::new(Vec::with_capacity(16)),
             unloaded_textures: DashMap::default(),
+            pending_loads: DashMap::default(),
             bind_group: CowData::null(),
             dirty: AtomicBool::new(false)
         }
@@ -110,17 +113,36 @@ impl AssetVault for BindlessArrayTextureVault {
         // get previous handle
         if let Some(value) = self.texture_map.get(&hash) { return Ok(value.0.clone()) };
         if let Some(value) = self.unloaded_textures.get(&hash) { return Ok(value.0.clone()) };
+        if let Some(value) = self.pending_loads.get(&hash) { return Ok(value.clone()) };
 
-        // load rgba content
-        let AssetContent::Binary(bytes) = content else { bail!("Only binary images supported right now!") };
-        let img = image::load_from_memory(&bytes)?;
-        let dimensions = img.dimensions();
-        let rgba = img.to_rgba8();
+        // atomically reserve this hash so a concurrent `load` of identical content, racing
+        // with the checks above, joins this in-flight decode instead of starting a duplicate
+        let handle = match self.pending_loads.entry(hash) {
+            mutual::Entry::Occupied(existing) => return Ok(existing.get().clone()),
+            mutual::Entry::Vacant(slot) => {
+                let handle = HandleInner { inner: (hash, Arc::clone(&self.0)), _phantom: PhantomData::default() };
+                let handle = Handle(Arc::new(handle));
+                slot.insert(handle.clone());
+                handle
+            }
+        };
 
-        // create and save new handle
-        let handle = HandleInner { inner: (hash, Arc::clone(&self.0)), _phantom: PhantomData::default() };
-        let handle = Handle(Arc::new(handle));
-        self.unloaded_textures.insert(hash, (handle.clone(), rgba, dimensions.into()));
+        // the actual bytes are fetched/decoded off-thread and moved into `unloaded_textures`
+        // once ready, where `update_bindless_textures` picks them up to do the (sync) GPU upload
+        let inner = Arc::clone(&self.0);
+        Scheduler::run_async(async move {
+            let result = async {
+                let bytes = content.into_bytes().await?;
+                let img = image::load_from_memory(&bytes)?;
+                anyhow::Ok((img.dimensions(), img.to_rgba8()))
+            }.await;
+
+            let Some((_, staged_handle)) = inner.pending_loads.remove(&hash) else { return };
+            match result {
+                Ok((dimensions, rgba)) => { inner.unloaded_textures.insert(hash, (staged_handle, rgba, dimensions.into())); }
+                Err(err) => eprintln!("Failed to load bindless texture: {err}"),
+            }
+        });
 
         Ok(handle)
     }
@@ -242,5 +264,98 @@ pub fn update_bindless_textures(
         });
 
         vault.bind_group.set(bind_group);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    const COBBLESTONE_PNG: &[u8] = include_bytes!("../../examples/cobblestone.png");
+
+    fn wait_until(timeout: Duration, mut condition: impl FnMut() -> bool) -> bool {
+        let start = Instant::now();
+        while start.elapsed() < timeout {
+            if condition() { return true; }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        false
+    }
+
+    #[test]
+    fn load_decodes_binary_content_asynchronously() {
+        let vault = BindlessArrayTextureVault::default();
+        let handle = vault.load(AssetContent::Binary(COBBLESTONE_PNG.into())).unwrap();
+        let hash = handle.inner.0;
+
+        assert!(wait_until(Duration::from_secs(5), || vault.unloaded_textures.contains_key(&hash)));
+
+        let staged = vault.unloaded_textures.get(&hash).unwrap();
+        let expected_dimensions = image::load_from_memory(COBBLESTONE_PNG).unwrap().dimensions();
+        assert_eq!(staged.2, expected_dimensions.into());
+    }
+
+    #[test]
+    fn load_deduplicates_identical_content_once_staged() {
+        let vault = BindlessArrayTextureVault::default();
+        let first = vault.load(AssetContent::Binary(COBBLESTONE_PNG.into())).unwrap();
+        let hash = first.inner.0;
+        assert!(wait_until(Duration::from_secs(5), || vault.unloaded_textures.contains_key(&hash)));
+
+        let second = vault.load(AssetContent::Binary(COBBLESTONE_PNG.into())).unwrap();
+
+        assert_eq!(second.inner.0, hash);
+        assert_eq!(vault.unloaded_textures.len(), 1);
+    }
+
+    #[test]
+    fn load_before_decode_finishes_joins_in_flight_load() {
+        let vault = BindlessArrayTextureVault::default();
+        let first = vault.load(AssetContent::Binary(COBBLESTONE_PNG.into())).unwrap();
+        // this call is made before the first's background decode has had a chance to
+        // finish, so it must join the in-flight load rather than starting a duplicate
+        let second = vault.load(AssetContent::Binary(COBBLESTONE_PNG.into())).unwrap();
+
+        assert_eq!(first.inner.0, second.inner.0);
+        assert_eq!(vault.pending_loads.len() + vault.unloaded_textures.len(), 1);
+
+        assert!(wait_until(Duration::from_secs(5), || vault.unloaded_textures.contains_key(&first.inner.0)));
+        assert_eq!(vault.unloaded_textures.len(), 1);
+    }
+
+    #[test]
+    fn concurrent_loads_of_identical_content_do_not_race() {
+        let vault = Arc::new(BindlessArrayTextureVault::default());
+        let barrier = Arc::new(std::sync::Barrier::new(4));
+
+        let handles: Vec<_> = (0..4).map(|_| {
+            let vault = Arc::clone(&vault);
+            let barrier = Arc::clone(&barrier);
+            std::thread::spawn(move || {
+                barrier.wait();
+                vault.load(AssetContent::Binary(COBBLESTONE_PNG.into())).unwrap()
+            })
+        }).collect();
+
+        let hashes: Vec<u64> = handles.into_iter().map(|h| h.join().unwrap().inner.0).collect();
+        assert!(hashes.windows(2).all(|w| w[0] == w[1]));
+
+        assert!(wait_until(Duration::from_secs(5), || vault.unloaded_textures.contains_key(&hashes[0])));
+        assert_eq!(vault.unloaded_textures.len(), 1);
+    }
+
+    #[test]
+    fn load_stages_content_read_from_a_local_path() {
+        let path = std::env::temp_dir().join(format!("gearbox_bindless_texture_test_{:?}.png", std::thread::current().id()));
+        std::fs::write(&path, COBBLESTONE_PNG).unwrap();
+
+        let vault = BindlessArrayTextureVault::default();
+        let handle = vault.load(AssetContent::LocalPath(path.to_string_lossy().into_owned())).unwrap();
+        let hash = handle.inner.0;
+
+        let staged = wait_until(Duration::from_secs(5), || vault.unloaded_textures.contains_key(&hash));
+        std::fs::remove_file(&path).unwrap();
+        assert!(staged);
     }
 }

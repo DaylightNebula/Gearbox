@@ -10,6 +10,7 @@
 //! This project is early and work in progress; little of the API is set in stone.
 
 #![allow(ambiguous_glob_reexports)]
+#![recursion_limit = "256"]
 
 use anarchy::{DeltaTime, FlexLocalId, Query, Res, ResMut, macros::{Resource, system}};
 use cell::{App, Frame, Graphics, Plugin, RENDER_SCHEDULE_ID, WindowDimensions};
