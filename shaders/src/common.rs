@@ -24,3 +24,6 @@ pub struct BindlessTextures {
     pub textures: BindlessArray<Texture2D>,
     pub global_sampler: Sampler
 }
+
+#[derive(ShaderGroup, BindableObject)]
+pub struct EmptyBindable {}

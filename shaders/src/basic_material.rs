@@ -22,7 +22,7 @@ pub struct FragmentOutput {
 #[shader("./shader_out", fragment)]
 pub fn primary_fs_main(
     #[group = 0] material: BasicMaterial,
-    #[group = 1] _cam_in: CameraInput,
+    #[group = 2] _cam_in: CameraInput,
     _input: VertexOutput
 ) -> FragmentOutput {
     return FragmentOutput { color: material.diffuse };

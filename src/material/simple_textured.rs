@@ -61,8 +61,8 @@ impl Material for SimpleTexturedMaterial {
                 )
                 .depth_format(DEPTH_FORMAT)
                 .layout_raw::<shaders::simple_textured::SimpleTexturedMaterial>(0, shaders::simple_textured::SimpleTexturedMaterial::layout(vgpu, ShaderStages::VERTEX_FRAGMENT))
-                .layout_raw::<shaders::common::CameraInput>(1, shaders::common::CameraInput::layout(vgpu, ShaderStages::VERTEX_FRAGMENT))
-                .layout_raw::<shaders::common::BindlessTextures>(2, shaders::common::BindlessTextures::layout(vgpu, ShaderStages::VERTEX_FRAGMENT))
+                .layout_raw::<shaders::common::CameraInput>(2, shaders::common::CameraInput::layout(vgpu, ShaderStages::VERTEX_FRAGMENT))
+                .layout_raw::<shaders::common::BindlessTextures>(1, shaders::common::BindlessTextures::layout(vgpu, ShaderStages::VERTEX_FRAGMENT))
         )
     }
 
@@ -97,7 +97,7 @@ impl Material for SimpleTexturedMaterial {
         // bind buffers
         pass.bind(bindable);
         pass.bind(&self.buffers.get_ref().bindable());
-        vault.bind(vgpu, pass, 2);
+        vault.bind(vgpu, pass, 1)?;
 
         Ok(())
     }

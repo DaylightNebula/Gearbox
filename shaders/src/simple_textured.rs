@@ -23,8 +23,8 @@ pub struct FragmentOutput {
 #[shader("./shader_out", fragment)]
 pub fn simple_textured_main(
     #[group = 0] material: SimpleTexturedMaterial,
-    #[group = 1] _cam_in: CameraInput,
-    #[group = 2] textures: BindlessTextures,
+    #[group = 2] _cam_in: CameraInput,
+    #[group = 1] textures: BindlessTextures,
     input: VertexOutput
 ) -> FragmentOutput {
     let color = textureSample(textures.textures[material.texture_id as usize], textures.global_sampler, input.uvs);

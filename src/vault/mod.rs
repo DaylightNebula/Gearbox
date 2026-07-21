@@ -63,5 +63,5 @@ pub trait BindableAssetVault: AssetVault {
 
     /// Binds this vault's assets to `bind_group` on `pass`, uploading any
     /// pending assets to the GPU first if needed.
-    fn bind(&self, vgpu: &VirtualGpu, pass: &mut SinglePass, bind_group: u32);
+    fn bind(&self, vgpu: &VirtualGpu, pass: &mut SinglePass, bind_group: u32) -> anyhow::Result<()>;
 }

@@ -9,7 +9,7 @@ use crate::{Camera, Material, shaders};
 /// material with.
 #[derive(Clone, Getters, AsAny)]
 pub struct BasicMaterial {
-    buffers: CowData<BindableObject<shaders::basic_material::BasicMaterial>>,
+    buffers: CowData<(BindableObject<shaders::basic_material::BasicMaterial>, BindableObject<shaders::common::EmptyBindable>)>,
     color: Vec4
 }
 
@@ -23,7 +23,7 @@ impl BasicMaterial {
 impl Material for BasicMaterial {
     fn create_pipeline<'a>(&'a self, vgpu: &magician_vgpu::VirtualGpu) -> anyhow::Result<PipelineBuilder<'a>> {
         Ok(
-            Pipeline::builder("Normal Shader")
+            Pipeline::builder("Basic Material Shader")
                 .source(
                     ShaderType::Fragment, 
                     ShaderSource {
@@ -33,7 +33,8 @@ impl Material for BasicMaterial {
                 )
                 .depth_format(wgpu::TextureFormat::Depth32Float)
                 .layout_raw::<shaders::basic_material::BasicMaterial>(0, shaders::basic_material::BasicMaterial::layout(vgpu, ShaderStages::VERTEX_FRAGMENT))
-                .layout_raw::<shaders::common::CameraInput>(1, shaders::common::CameraInput::layout(vgpu, ShaderStages::VERTEX_FRAGMENT))
+                .layout_raw::<shaders::common::EmptyBindable>(1, shaders::common::EmptyBindable::layout(vgpu, ShaderStages::VERTEX_FRAGMENT))
+                .layout_raw::<shaders::common::CameraInput>(2, shaders::common::CameraInput::layout(vgpu, ShaderStages::VERTEX_FRAGMENT))
         )
     }
 
@@ -53,12 +54,15 @@ impl Material for BasicMaterial {
             let material_buffer = MutableBuffer::new(vgpu, &self.color.into(), BufferUsages::UNIFORM);
             let material_bind = BindableObject::<shaders::basic_material::BasicMaterial>::from_inputs(vgpu, &material_buffer);
 
-            self.buffers.set(material_bind);
+            let empty = BindableObject::<shaders::common::EmptyBindable>::from_inputs(vgpu, &());
+
+            self.buffers.set((material_bind, empty));
         }
     
         // draw buffers
         pass.bind(bindable);
-        pass.bind(&self.buffers.get_ref());
+        pass.bind(&self.buffers.get_ref().0);
+        pass.bind(&self.buffers.get_ref().1);
 
         Ok(())
     }

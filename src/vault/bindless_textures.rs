@@ -153,9 +153,16 @@ impl BindableAssetVault for BindlessArrayTextureVault {
             );
     }
 
-    fn bind(&self, _vgpu: &VirtualGpu, pass: &mut SinglePass, bind_group: u32) {
-        if self.bind_group.is_null() { return }
+    fn bind(
+        &self, 
+        _vgpu: &VirtualGpu, 
+        pass: &mut SinglePass, 
+        bind_group: u32
+    ) -> anyhow::Result<()> {
+        if self.texture_arr.lock_ref().len() < 1 { bail!("No loaded textures") }
+        if self.bind_group.is_null() { bail!("Missing bind group for bindless textures") }
         pass.bind_raw(bind_group, &self.bind_group.get_ref());
+        Ok(())
     }
 }
 
@@ -199,7 +206,7 @@ pub fn update_bindless_textures(
     }
 
     // check if bind group needs rebuilding
-    if vault.dirty.swap(false, Ordering::AcqRel) || vault.bind_group.is_null() {
+    if (vault.dirty.swap(false, Ordering::AcqRel) || vault.bind_group.is_null()) && !vault.texture_arr.lock_mut().is_empty() {
         let binding = vault.texture_arr.lock_ref();
         let views = binding
             .iter()
