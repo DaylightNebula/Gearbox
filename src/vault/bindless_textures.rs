@@ -88,6 +88,9 @@ impl Default for BindlessArrayTextureVaultInner {
 
 impl AssetVault for BindlessArrayTextureVault {
     type Asset = BindlessArrayTextureAsset;
+    type Lookup = Handle<Self::Asset>;
+    type LoadResult = Handle<Self::Asset>;
+    type LookupResult = Ref<Self::Asset>;
 
     fn get(&self, handle: &Handle<Self::Asset>) -> Option<Ref<Self::Asset>> {
         self.0.texture_map.get(&handle.inner().0)

@@ -6,13 +6,14 @@
 
 use anarchy::{Resource, anyhow};
 use magician_vgpu::{SinglePass, VirtualGpu};
-use mutual::Ref;
 
-pub mod handles;
 pub mod bindless_textures;
+pub mod handles;
+pub mod mesh;
 
-pub use handles::*;
 pub use bindless_textures::*;
+pub use handles::*;
+pub use mesh::*;
 
 /// A type of asset that can be loaded into and unloaded from an [`AssetVault`].
 ///
@@ -31,6 +32,9 @@ pub trait Asset: 'static {
 ///
 /// Not every vault is required to support every variant; unsupported variants
 /// should be rejected by returning an `Err` from `load`.
+/// 
+/// Beware when using raw `Binary` and `Content` variants as they will be hashed so
+/// large inpust are not suggested unless absolutely necessary.
 #[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum AssetContent {
     /// Raw, already-decoded binary content (e.g. the bytes of an image file).
@@ -67,12 +71,15 @@ impl AssetContent {
 /// or below [`Asset::unload_threshold`].
 pub trait AssetVault: Resource + 'static {
     type Asset: Asset;
+    type LoadResult;
+    type Lookup;
+    type LookupResult;
 
     /// Returns a reference to the loaded asset data for `handle`, if it is currently loaded.
-    fn get(&self, handle: &Handle<Self::Asset>) -> Option<Ref<Self::Asset>>;
+    fn get(&self, handle: &Self::Lookup) -> Option<Self::LookupResult>;
 
     /// Loads (or looks up an existing handle for) the asset described by `content`.
-    fn load(&self, content: AssetContent) -> anyhow::Result<Handle<Self::Asset>>;
+    fn load(&self, content: AssetContent) -> anyhow::Result<Self::LoadResult>;
 }
 
 /// An [`AssetVault`] whose loaded assets can be bound to a GPU render pass.

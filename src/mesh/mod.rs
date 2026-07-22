@@ -1,6 +1,6 @@
 use std::any::{Any, TypeId};
 
-use anarchy::macros::Component;
+use anarchy::{Entity, World, macros::Component};
 use derive_more::{Deref, DerefMut};
 use magician_vgpu::{PipelineBuilder, SinglePass, VirtualGpu};
 
@@ -24,7 +24,8 @@ pub trait Mesh: Any + AsAny {
         &self,
         vgpu: &VirtualGpu,
         pass: &mut SinglePass,
-        entity: &anarchy::Entity
+        world: &World,
+        entity: &Entity
     );
 }
 

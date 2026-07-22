@@ -15,6 +15,12 @@ use crate::Asset;
 #[derive(Deref, DerefMut)]
 pub struct Handle<T: Asset>(pub(crate) Arc<HandleInner<T>>);
 
+impl <T: Asset> Handle<T> {
+    pub fn new(inner: T::HandleTracker) -> Self {
+        Self(Arc::new(HandleInner { inner, _phantom: PhantomData::default() }))
+    }
+}
+
 impl <T: Asset> Debug for Handle<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Handle")

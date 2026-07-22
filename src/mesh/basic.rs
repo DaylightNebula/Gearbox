@@ -1,4 +1,4 @@
-use anarchy::{ComponentMeta, extract_comps_distributed, macros::{AsAny, Getters}};
+use anarchy::{ComponentMeta, Entity, World, extract_comps_distributed, macros::{AsAny, Getters}};
 use magician_vgpu::{DrawSettings, ImmutableBuffer, MutableBuffer, Pipeline, PipelineBuilder, ShaderSource, ShaderType, SinglePass, VirtualGpu, WritableBuffer, glam::Mat4};
 use mutual::{CastableSharedData, CowData, RefCastGuard};
 use wgpu::BufferUsages;
@@ -55,7 +55,8 @@ impl Mesh for BasicMesh {
         &self,
         vgpu: &VirtualGpu,
         pass: &mut SinglePass, 
-        entity: &anarchy::Entity
+        _world: &World,
+        entity: &Entity
     ) {
         // extract transform and mesh components
         let (mut comps, _ctx) = extract_comps_distributed(
