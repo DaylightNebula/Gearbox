@@ -140,9 +140,12 @@ impl AssetVault for BindlessArrayTextureVault {
                 anyhow::Ok((img.dimensions(), img.to_rgba8()))
             }.await;
 
-            let Some((_, staged_handle)) = inner.pending_loads.remove(&hash) else { return };
+            let Some(staged_handle) = inner.pending_loads.get(&hash) else { return };
             match result {
-                Ok((dimensions, rgba)) => { inner.unloaded_textures.insert(hash, (staged_handle, rgba, dimensions.into())); }
+                Ok((dimensions, rgba)) => { 
+                    inner.unloaded_textures.insert(hash, (staged_handle.clone(), rgba, dimensions.into()));
+                    inner.pending_loads.remove(&hash);
+                }
                 Err(err) => eprintln!("Failed to load bindless texture: {err}"),
             }
         });
