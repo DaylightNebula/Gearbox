@@ -35,6 +35,9 @@ impl <T: Asset> Clone for Handle<T> {
     }
 }
 
+unsafe impl <T: Asset> Send for Handle<T> {}
+unsafe impl <T: Asset> Sync for Handle<T> {}
+
 /// The data tracked by a [`Handle`]: the vault-defined [`Asset::HandleTracker`] used
 /// to locate and unload the asset, plus a marker tying the handle to its asset type.
 #[derive(Getters)]

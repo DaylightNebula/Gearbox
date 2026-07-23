@@ -136,7 +136,7 @@ fn render_mesh_material(
             );
             if mat_result.is_err() { continue }
 
-            mesh.draw(&*graphics, &mut pass, world, entity);
+            mesh.draw(&*graphics, &mut pass, world, entity)?;
         }
     }
 }

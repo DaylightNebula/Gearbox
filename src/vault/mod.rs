@@ -22,7 +22,7 @@ pub use mesh::*;
 /// crossed (`unload`).
 pub trait Asset: 'static {
     type Vault: AssetVault;
-    type HandleTracker: 'static;
+    type HandleTracker: Send + Sync + 'static;
 
     fn unload_threshold() -> usize;
     fn unload(tracker: &Self::HandleTracker);

@@ -1,6 +1,6 @@
 use std::any::{Any, TypeId};
 
-use anarchy::{Entity, World, macros::Component};
+use anarchy::{Entity, World, anyhow, macros::Component};
 use derive_more::{Deref, DerefMut};
 use magician_vgpu::{PipelineBuilder, SinglePass, VirtualGpu};
 
@@ -26,7 +26,7 @@ pub trait Mesh: Any + AsAny {
         pass: &mut SinglePass,
         world: &World,
         entity: &Entity
-    );
+    ) -> anyhow::Result<()>;
 }
 
 /// A [`Component`](anarchy::Component) wrapping a type-erased [`Mesh`], attached to
