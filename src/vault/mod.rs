@@ -71,6 +71,7 @@ impl AssetContent {
 /// or below [`Asset::unload_threshold`].
 pub trait AssetVault: Resource + 'static {
     type Asset: Asset;
+    type LoadType;
     type LoadResult;
     type Lookup;
     type LookupResult;
@@ -79,7 +80,7 @@ pub trait AssetVault: Resource + 'static {
     fn get(&self, handle: &Self::Lookup) -> Option<Self::LookupResult>;
 
     /// Loads (or looks up an existing handle for) the asset described by `content`.
-    fn load(&self, content: AssetContent) -> anyhow::Result<Self::LoadResult>;
+    fn load(&self, content: AssetContent, ty: Self::LoadType) -> anyhow::Result<Self::LoadResult>;
 }
 
 /// An [`AssetVault`] whose loaded assets can be bound to a GPU render pass.

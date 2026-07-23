@@ -61,6 +61,7 @@ impl MeshAssetVaultInner {
 
 impl AssetVault for MeshAssetVault {
     type Asset = MeshAsset;
+    type LoadType = ();
     type LoadResult = Handle<MeshAsset>;
     type Lookup = Handle<MeshAsset>;
     type LookupResult = RefCowData<MeshAsset>;
@@ -69,7 +70,7 @@ impl AssetVault for MeshAssetVault {
         self.mesh.get(&handle.inner.0).map(|a| a.1.get_ref())
     }
 
-    fn load(&self, _content: AssetContent) -> anarchy::anyhow::Result<Self::LoadResult> {
+    fn load(&self, _content: AssetContent, _ty: ()) -> anarchy::anyhow::Result<Self::LoadResult> {
         todo!("Load obj files from asset content")
     }
 }
