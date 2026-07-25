@@ -10,7 +10,7 @@ use crate::{AssetVault, BindableAssetVault, BindlessArrayTextureAsset, BindlessA
 pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 
 /// A material that samples a single albedo texture, with no other lighting inputs.
-#[derive(Getters, AsAny)]
+#[derive(Getters, Clone, AsAny)]
 pub struct SimpleTexturedMaterial {
     buffers: CowData<SimpleTexturedBuffers>,
     texture: Handle<BindlessArrayTextureAsset>
@@ -49,7 +49,7 @@ impl SimpleTexturedMaterial {
 }
 
 impl Material for SimpleTexturedMaterial {
-    fn create_pipeline<'a>(&'a self, vgpu: &magician_vgpu::VirtualGpu) -> anyhow::Result<PipelineBuilder<'a>> {
+    fn create_pipeline<'a>(&self, vgpu: &magician_vgpu::VirtualGpu) -> anyhow::Result<PipelineBuilder<'a>> {
         Ok(
             Pipeline::builder("Normal Shader")
                 .source(

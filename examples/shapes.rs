@@ -2,7 +2,7 @@ use anarchy::anyhow::Context;
 use anarchy::{EntityBuilder, Query, World, WorldDatabase, anyhow};
 use anarchy::{Res, macros::system};
 use cell::{App, Graphics};
-use gearbox::{AssetContent, AssetVault, BindlessArrayTextureVault, GearboxRenderPlugin, MaterialRef, MeshRef, ShapeBuilder, SimpleTexturedMaterial, glam::*};
+use gearbox::{AssetContent, AssetVault, BindlessArrayTextureType, BindlessArrayTextureVault, GearboxRenderPlugin, MaterialRef, MeshRef, ShapeBuilder, SimpleTexturedMaterial, glam::*};
 use gearbox::{Camera, Transform};
 
 fn main() -> anyhow::Result<()> {
@@ -72,7 +72,7 @@ fn add_shape(
 
     let vault = world.get_resource_ref::<BindlessArrayTextureVault>().context("No bindless texture array vault")?;
     let texture_handle = AssetContent::Binary(Box::new(*include_bytes!("./cobblestone.png")));
-    let texture_handle = vault.load(texture_handle)?;
+    let texture_handle = vault.load(texture_handle, BindlessArrayTextureType::PNG)?;
 
     world.insert(
         EntityBuilder::default()

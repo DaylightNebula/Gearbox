@@ -363,7 +363,7 @@ mod tests {
         std::fs::write(&path, COBBLESTONE_PNG).unwrap();
 
         let vault = BindlessArrayTextureVault::default();
-        let handle = vault.load(AssetContent::LocalPath(path.to_string_lossy().into_owned()), BindlessArrayTextureType::PNG).unwrap();
+        let handle = vault.load(AssetContent::LocalPath(path.to_string_lossy().into_owned().into()), BindlessArrayTextureType::PNG).unwrap();
         let hash = handle.inner.0;
 
         let staged = wait_until(Duration::from_secs(5), || vault.unloaded_textures.contains_key(&hash));

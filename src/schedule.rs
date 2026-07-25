@@ -1,7 +1,7 @@
 use std::collections::LinkedList;
 
 use ahash::AHashMap;
-use anarchy::{ComponentMeta, MaskBuilder, Query, Res, ResMut, Schedule, ScheduleID, ScheduleTile, System, World, anyhow, execute_schedule_sync, extract_comps, macros::{Getters, Resource, system}};
+use anarchy::{ComponentMeta, MaskBuilder, Query, Res, ResMut, Schedule, ScheduleID, ScheduleTile, System, World, anyhow::{self, bail}, execute_schedule_sync, extract_comps, macros::{Getters, Resource, system}};
 use cell::{App, Graphics, Plugin};
 use mutual::{CastableSharedData, CowData, RefCastGuard};
 
@@ -135,6 +135,10 @@ fn render_mesh_material(
                 &*entity
             );
             if mat_result.is_err() { continue }
+
+            // validate mesh mat key, this has to be done after prep_render_entity to protect against material swapping
+            if material.id() != mesh_mat_key.1 { bail!("Material mismatch") }
+            if mesh.id() != mesh_mat_key.0 { bail!("Mesh mismatch") }
 
             mesh.draw(&*graphics, &mut pass, world, entity)?;
         }

@@ -4,6 +4,8 @@
 //! ability to bind its assets to a GPU render pass. See [`bindless_textures`] for a concrete
 //! example vault implementation.
 
+use std::path::PathBuf;
+
 use anarchy::{Resource, anyhow};
 use magician_vgpu::{SinglePass, VirtualGpu};
 
@@ -42,7 +44,7 @@ pub enum AssetContent {
     /// Textual content, such as inline source for a text-based asset format.
     Content(String),
     /// A path to the asset's content on the local filesystem.
-    LocalPath(String),
+    LocalPath(PathBuf),
     /// A URL to fetch the asset's content from over the network.
     Url(String)
 }
@@ -116,7 +118,7 @@ mod tests {
         let path = std::env::temp_dir().join(format!("gearbox_asset_content_test_{:?}", std::thread::current().id()));
         std::fs::write(&path, b"from disk").unwrap();
 
-        let bytes = pollster::block_on(AssetContent::LocalPath(path.to_string_lossy().into_owned()).into_bytes()).unwrap();
+        let bytes = pollster::block_on(AssetContent::LocalPath(path.to_string_lossy().into_owned().into()).into_bytes()).unwrap();
 
         std::fs::remove_file(&path).unwrap();
         assert_eq!(&*bytes, b"from disk");
