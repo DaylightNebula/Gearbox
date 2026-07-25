@@ -45,6 +45,7 @@ impl Plugin for GearboxRenderPlugin {
             .add_plugin(BindlessTexturesPlugin)
             .add_plugin(MeshAssetPlugin)
             .add_resource(MaterialPipelineStorage::default())
+            .add_resource(MaterialVault::default())
             .on_render_update(update_cameras)
             .on_render_update(begin_main_pass)
             .on_render_update(execute_render_schedule)

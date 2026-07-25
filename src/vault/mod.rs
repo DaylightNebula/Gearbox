@@ -11,10 +11,12 @@ use magician_vgpu::{SinglePass, VirtualGpu};
 
 pub mod bindless_textures;
 pub mod handles;
+pub mod material;
 pub mod mesh;
 
 pub use bindless_textures::*;
 pub use handles::*;
+pub use material::*;
 pub use mesh::*;
 
 /// A type of asset that can be loaded into and unloaded from an [`AssetVault`].

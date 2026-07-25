@@ -21,7 +21,7 @@ impl BasicMaterial {
 }
 
 impl Material for BasicMaterial {
-    fn create_pipeline<'a>(&self, vgpu: &magician_vgpu::VirtualGpu) -> anyhow::Result<PipelineBuilder<'a>> {
+    fn create_pipeline<'a>(&self, vgpu: &magician_vgpu::VirtualGpu, _world: &World) -> anyhow::Result<PipelineBuilder<'a>> {
         Ok(
             Pipeline::builder("Basic Material Shader")
                 .source(

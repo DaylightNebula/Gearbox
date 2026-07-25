@@ -108,7 +108,7 @@ fn render_mesh_material(
             // ensure pipeline exists for material
             let mesh_mat_key = (mesh.id(), material.id());
             if !pipelines.contains_key(&mesh_mat_key) {
-                let pipeline = material.create_pipeline(&*graphics)?
+                let pipeline = material.create_pipeline(&*graphics, world)?
                     .merge(mesh.create_pipeline(&*graphics))
                     .build(&*graphics);
                 pipelines.insert(mesh_mat_key, CowData::new(pipeline));

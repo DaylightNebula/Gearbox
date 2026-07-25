@@ -49,7 +49,7 @@ impl SimpleTexturedMaterial {
 }
 
 impl Material for SimpleTexturedMaterial {
-    fn create_pipeline<'a>(&self, vgpu: &magician_vgpu::VirtualGpu) -> anyhow::Result<PipelineBuilder<'a>> {
+    fn create_pipeline<'a>(&self, vgpu: &magician_vgpu::VirtualGpu, _world: &World) -> anyhow::Result<PipelineBuilder<'a>> {
         Ok(
             Pipeline::builder("Normal Shader")
                 .source(

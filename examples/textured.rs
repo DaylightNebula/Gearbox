@@ -1,6 +1,6 @@
 use anarchy::{EntityBuilder, Query, Res, WorldDatabase, anyhow, macros::system};
 use cell::{App, Graphics};
-use gearbox::{AssetContent, BasicMesh, BindlessArrayTextureType, BindlessArrayTextureVault, Camera, GearboxRenderPlugin, LoadableAssetVault, MaterialRef, MeshRef, SimpleTexturedMaterial, Transform};
+use gearbox::{AssetContent, BasicMesh, BindlessArrayTextureType, BindlessArrayTextureVault, Camera, GearboxRenderPlugin, LazyAssetVault, LoadableAssetVault, MaterialRef, MaterialVault, MeshRef, SimpleTexturedMaterial, Transform};
 use magician_vgpu::{glam::{self, Quat}, rust::{Vec2, Vec3}};
 use shaders::basic_vertex;
 
@@ -15,7 +15,8 @@ fn main() -> anyhow::Result<()> {
 #[system]
 fn setup(
     graphics: Res<Graphics>,
-    vault: Res<BindlessArrayTextureVault>
+    vault: Res<BindlessArrayTextureVault>,
+    materials: Res<MaterialVault>
 ) {
     let vertices: [basic_vertex::VertexInput; 3] = [
         basic_vertex::VertexInput { position: Vec3::new(0.0,  0.5, 0.0), uvs: Vec2::new(0.5, 0.0), normals: Vec3::default() },
@@ -31,11 +32,13 @@ fn setup(
 
     let texture_handle = AssetContent::Binary(Box::new(*include_bytes!("./cobblestone.png")));
     let texture_handle = vault.load(world, texture_handle, BindlessArrayTextureType::PNG)?;
+    let mat_handle = materials.allocate(1)?;
+    materials.store(world, mat_handle.clone(), Box::new(SimpleTexturedMaterial::new(texture_handle)));
 
     world.insert(
         EntityBuilder::default()
             .add(Transform::identity())
-            .add(MaterialRef::new(SimpleTexturedMaterial::new(texture_handle)))
+            .add(MaterialRef::new(mat_handle))
             .add(MeshRef::new(mesh))
             .build()
     );

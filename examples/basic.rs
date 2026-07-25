@@ -1,6 +1,6 @@
 use anarchy::{EntityBuilder, Query, Res, WorldDatabase, anyhow, macros::system};
 use cell::{App, Graphics};
-use gearbox::{BasicMaterial, BasicMesh, Camera, GearboxRenderPlugin, MaterialRef, MeshRef, Transform};
+use gearbox::{BasicMaterial, BasicMesh, Camera, GearboxRenderPlugin, LazyAssetVault, MaterialRef, MaterialVault, MeshRef, Transform};
 use magician_vgpu::{glam::{self, Quat}, rust::{Vec2, Vec3}};
 use shaders::basic_vertex;
 
@@ -14,7 +14,8 @@ fn main() -> anyhow::Result<()> {
 
 #[system]
 fn setup(
-    graphics: Res<Graphics>
+    graphics: Res<Graphics>,
+    materials: Res<MaterialVault>
 ) {
     let vertices: [basic_vertex::VertexInput; 3] = [
         basic_vertex::VertexInput { position: Vec3::new(0.0,  0.5, 0.0), uvs: Vec2::new(0.5, 0.0), normals: Vec3::default() },
@@ -28,10 +29,13 @@ fn setup(
         &[0, 1, 2]
     );
 
+    let mat_handle = materials.allocate(1)?;
+    materials.store(world, mat_handle.clone(), Box::new(BasicMaterial::new(glam::Vec4::new(0.1, 0.8, 0.2, 1.0))));
+
     world.insert(
         EntityBuilder::default()
             .add(Transform::identity())
-            .add(MaterialRef::new(BasicMaterial::new(glam::Vec4::new(0.1, 0.8, 0.2, 1.0))))
+            .add(MaterialRef::new(mat_handle))
             .add(MeshRef::new(mesh))
             .build()
     );

@@ -6,13 +6,13 @@ use derive_more::{Deref, DerefMut};
 use magician_vgpu::{Pipeline, PipelineBuilder, SinglePass, VirtualGpu};
 use mutual::CowData;
 
-use crate::Camera;
-
 pub mod basic;
 pub mod simple_textured;
 
 pub use basic::*;
 pub use simple_textured::*;
+
+use crate::Camera;
 
 /// Central storage for all pipelines in use by `Material`s.
 #[derive(Resource, Default, Deref, DerefMut)]
@@ -29,7 +29,8 @@ pub trait Material: Any {
 
     fn create_pipeline<'a>(
         &self, 
-        vgpu: &VirtualGpu
+        vgpu: &VirtualGpu,
+        world: &World
     ) -> anyhow::Result<PipelineBuilder<'a>>;
 
     fn prep_render_entity(
@@ -74,10 +75,11 @@ impl Material for HotSwapMaterial {
 
     fn create_pipeline<'a>(
         &self, 
-        vgpu: &VirtualGpu
+        vgpu: &VirtualGpu,
+        world: &World
     ) -> anyhow::Result<PipelineBuilder<'a>> {
         if self.is_null() { bail!("Unfilled hotswap material") }
-        self.get_ref().create_pipeline(vgpu)
+        self.get_ref().create_pipeline(vgpu, world)
     }
 
     fn prep_render_entity(
