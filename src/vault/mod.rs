@@ -80,7 +80,7 @@ pub trait AssetVault: Resource + 'static {
     fn get(&self, handle: &Self::Lookup) -> Option<Self::LookupResult>;
 }
 
-/// This trait allwos [`AssetVault`] resources to load assets via a standard method with standardized types.
+/// This trait allows [`AssetVault`] resources to load assets via a standard method with standardized types.
 pub trait LoadableAssetVault: AssetVault {
     type LoadType;
     type LoadResult;
@@ -97,6 +97,21 @@ pub trait BindableAssetVault: AssetVault {
     /// Binds this vault's assets to `bind_group` on `pass`, uploading any
     /// pending assets to the GPU first if needed.
     fn bind(&self, vgpu: &VirtualGpu, pass: &mut SinglePass, bind_group: u32) -> anyhow::Result<()>;
+}
+
+/// This trait allows [`AssetVault`] to allocate storage for some asset that is loaded later.
+/// This allows for another system to load data for this [`AssetVault`] and use both its own
+/// handles and handles from this [`AssetVault`].
+pub trait PreloadAssetVault: AssetVault {
+    type AllocTy;
+    type Store;
+
+    /// Allocate a handle given some data `AllocTy` ahead of time.  This should be used to
+    /// construct a handle in which its data will be pre-allocated.
+    fn allocate(&self, alloc: Self::AllocTy) -> anyhow::Result<Self::Lookup>;
+
+    /// Store some data `Store` for a given handle `Lookup`.
+    fn store(&self, world: &World, handle: Self::Lookup, store: Self::Store);
 }
 
 #[cfg(test)]
