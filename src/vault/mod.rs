@@ -102,7 +102,7 @@ pub trait BindableAssetVault: AssetVault {
 /// This trait allows [`AssetVault`] to allocate storage for some asset that is loaded later.
 /// This allows for another system to load data for this [`AssetVault`] and use both its own
 /// handles and handles from this [`AssetVault`].
-pub trait PreloadAssetVault: AssetVault {
+pub trait LazyAssetVault: AssetVault {
     type AllocTy;
     type Store;
 
