@@ -6,7 +6,7 @@
 
 use std::path::PathBuf;
 
-use anarchy::{Resource, anyhow};
+use anarchy::{Resource, World, anyhow};
 use magician_vgpu::{SinglePass, VirtualGpu};
 
 pub mod bindless_textures;
@@ -73,16 +73,20 @@ impl AssetContent {
 /// or below [`Asset::unload_threshold`].
 pub trait AssetVault: Resource + 'static {
     type Asset: Asset;
-    type LoadType;
-    type LoadResult;
     type Lookup;
     type LookupResult;
 
     /// Returns a reference to the loaded asset data for `handle`, if it is currently loaded.
     fn get(&self, handle: &Self::Lookup) -> Option<Self::LookupResult>;
+}
+
+/// This trait allwos [`AssetVault`] resources to load assets via a standard method with standardized types.
+pub trait LoadableAssetVault: AssetVault {
+    type LoadType;
+    type LoadResult;
 
     /// Loads (or looks up an existing handle for) the asset described by `content`.
-    fn load(&self, content: AssetContent, ty: Self::LoadType) -> anyhow::Result<Self::LoadResult>;
+    fn load(&self, world: &World, content: AssetContent, ty: Self::LoadType) -> anyhow::Result<Self::LoadResult>;
 }
 
 /// An [`AssetVault`] whose loaded assets can be bound to a GPU render pass.

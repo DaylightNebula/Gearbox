@@ -4,7 +4,7 @@
 use std::{hash::{Hash, Hasher}, marker::PhantomData, sync::{Arc, atomic::{AtomicBool, Ordering}}};
 
 use ahash::AHasher;
-use anarchy::{Res, Scheduler, anyhow, macros::{Getters, Resource, system}};
+use anarchy::{Res, Scheduler, World, anyhow, macros::{Getters, Resource, system}};
 use anarchy::anyhow::bail;
 use cell::{App, Graphics, Plugin};
 use derive_more::{Deref, DerefMut};
@@ -12,7 +12,7 @@ use image::{GenericImageView, ImageBuffer, Rgba};
 use magician_vgpu::{SinglePass, StaticTexture, Texture, VirtualGpu, glam::UVec2};
 use mutual::{CowData, DashMap, Ref, RefGuard, RelaxedMutex, SharedData};
 
-use crate::{Asset, AssetContent, AssetVault, BindableAssetVault, Handle, HandleInner};
+use crate::{Asset, AssetContent, AssetVault, BindableAssetVault, Handle, HandleInner, LoadableAssetVault};
 
 /// Plugin that adds the [`BindlessArrayTextureVault`] asset vault resource to the
 /// app as well as the needed upkeep systems.
@@ -93,8 +93,6 @@ impl Default for BindlessArrayTextureVaultInner {
 
 impl AssetVault for BindlessArrayTextureVault {
     type Asset = BindlessArrayTextureAsset;
-    type LoadType = BindlessArrayTextureType;
-    type LoadResult = Handle<Self::Asset>;
     type Lookup = Handle<Self::Asset>;
     type LookupResult = Ref<Self::Asset>;
 
@@ -112,8 +110,13 @@ impl AssetVault for BindlessArrayTextureVault {
                 )
             })
     }
+}
 
-    fn load(&self, content: AssetContent, _ty: BindlessArrayTextureType) -> anyhow::Result<Handle<Self::Asset>> {
+impl LoadableAssetVault for BindlessArrayTextureVault {
+    type LoadType = BindlessArrayTextureType;
+    type LoadResult = Handle<Self::Asset>;
+
+    fn load(&self, _world: &World, content: AssetContent, _ty: BindlessArrayTextureType) -> anyhow::Result<Handle<Self::Asset>> {
         // compute content hash
         let mut hasher = AHasher::default();
         content.hash(&mut hasher);
@@ -297,8 +300,9 @@ mod tests {
 
     #[test]
     fn load_decodes_binary_content_asynchronously() {
+        let world = World::default();
         let vault = BindlessArrayTextureVault::default();
-        let handle = vault.load(AssetContent::Binary(COBBLESTONE_PNG.into()), BindlessArrayTextureType::PNG).unwrap();
+        let handle = vault.load(&world, AssetContent::Binary(COBBLESTONE_PNG.into()), BindlessArrayTextureType::PNG).unwrap();
         let hash = handle.inner.0;
 
         assert!(wait_until(Duration::from_secs(5), || vault.unloaded_textures.contains_key(&hash)));
@@ -310,12 +314,13 @@ mod tests {
 
     #[test]
     fn load_deduplicates_identical_content_once_staged() {
+        let world = World::default();
         let vault = BindlessArrayTextureVault::default();
-        let first = vault.load(AssetContent::Binary(COBBLESTONE_PNG.into()), BindlessArrayTextureType::PNG).unwrap();
+        let first = vault.load(&world, AssetContent::Binary(COBBLESTONE_PNG.into()), BindlessArrayTextureType::PNG).unwrap();
         let hash = first.inner.0;
         assert!(wait_until(Duration::from_secs(5), || vault.unloaded_textures.contains_key(&hash)));
 
-        let second = vault.load(AssetContent::Binary(COBBLESTONE_PNG.into()), BindlessArrayTextureType::PNG).unwrap();
+        let second = vault.load(&world, AssetContent::Binary(COBBLESTONE_PNG.into()), BindlessArrayTextureType::PNG).unwrap();
 
         assert_eq!(second.inner.0, hash);
         assert_eq!(vault.unloaded_textures.len(), 1);
@@ -323,11 +328,12 @@ mod tests {
 
     #[test]
     fn load_before_decode_finishes_joins_in_flight_load() {
+        let world = World::default();
         let vault = BindlessArrayTextureVault::default();
-        let first = vault.load(AssetContent::Binary(COBBLESTONE_PNG.into()), BindlessArrayTextureType::PNG).unwrap();
+        let first = vault.load(&world, AssetContent::Binary(COBBLESTONE_PNG.into()), BindlessArrayTextureType::PNG).unwrap();
         // this call is made before the first's background decode has had a chance to
         // finish, so it must join the in-flight load rather than starting a duplicate
-        let second = vault.load(AssetContent::Binary(COBBLESTONE_PNG.into()), BindlessArrayTextureType::PNG).unwrap();
+        let second = vault.load(&world, AssetContent::Binary(COBBLESTONE_PNG.into()), BindlessArrayTextureType::PNG).unwrap();
 
         assert_eq!(first.inner.0, second.inner.0);
         assert_eq!(vault.pending_loads.len() + vault.unloaded_textures.len(), 1);
@@ -345,8 +351,9 @@ mod tests {
             let vault = Arc::clone(&vault);
             let barrier = Arc::clone(&barrier);
             std::thread::spawn(move || {
+                let world = World::default();
                 barrier.wait();
-                vault.load(AssetContent::Binary(COBBLESTONE_PNG.into()), BindlessArrayTextureType::PNG).unwrap()
+                vault.load(&world, AssetContent::Binary(COBBLESTONE_PNG.into()), BindlessArrayTextureType::PNG).unwrap()
             })
         }).collect();
 
@@ -359,11 +366,12 @@ mod tests {
 
     #[test]
     fn load_stages_content_read_from_a_local_path() {
+        let world = World::default();
         let path = std::env::temp_dir().join(format!("gearbox_bindless_texture_test_{:?}.png", std::thread::current().id()));
         std::fs::write(&path, COBBLESTONE_PNG).unwrap();
 
         let vault = BindlessArrayTextureVault::default();
-        let handle = vault.load(AssetContent::LocalPath(path.to_string_lossy().into_owned().into()), BindlessArrayTextureType::PNG).unwrap();
+        let handle = vault.load(&world, AssetContent::LocalPath(path.to_string_lossy().into_owned().into()), BindlessArrayTextureType::PNG).unwrap();
         let hash = handle.inner.0;
 
         let staged = wait_until(Duration::from_secs(5), || vault.unloaded_textures.contains_key(&hash));

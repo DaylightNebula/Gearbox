@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
-use anarchy::macros::Resource;
+use anarchy::{World, macros::Resource};
 use cell::{App, Plugin};
 use derive_more::{Deref, DerefMut};
 use mutual::{CowData, DashMap, RefCowData};
 
-use crate::{Asset, AssetContent, AssetVault, Handle, Mesh};
+use crate::{Asset, AssetContent, AssetVault, Handle, LoadableAssetVault, Mesh};
 
 pub struct MeshAssetPlugin;
 impl Plugin for MeshAssetPlugin {
@@ -61,16 +61,19 @@ impl MeshAssetVaultInner {
 
 impl AssetVault for MeshAssetVault {
     type Asset = MeshAsset;
-    type LoadType = ();
-    type LoadResult = Handle<MeshAsset>;
     type Lookup = Handle<MeshAsset>;
     type LookupResult = RefCowData<MeshAsset>;
 
     fn get(&self, handle: &Self::Lookup) -> Option<Self::LookupResult> {
         self.mesh.get(&handle.inner.0).map(|a| a.1.get_ref())
     }
+}
 
-    fn load(&self, _content: AssetContent, _ty: ()) -> anarchy::anyhow::Result<Self::LoadResult> {
+impl LoadableAssetVault for MeshAssetVault {
+    type LoadType = ();
+    type LoadResult = Handle<MeshAsset>;
+
+    fn load(&self, _world: &World, _content: AssetContent, _ty: ()) -> anarchy::anyhow::Result<Self::LoadResult> {
         todo!("Load obj files from asset content")
     }
 }
