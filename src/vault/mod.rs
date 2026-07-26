@@ -116,6 +116,17 @@ pub trait LazyAssetVault: AssetVault {
     fn store(&self, world: &World, handle: Self::Lookup, store: Self::Store);
 }
 
+/// This trait allows [`AssetVault`] to load from some kind of "raw" input and deliver some
+/// kind of raw output.  This is useful for [`AssetVault`] implementations that require some
+/// kind of alternative input data to the normal [`LoadableAssetVault`].
+pub trait LoadRawAssetVault: AssetVault {
+    type LoadRawInput;
+    type LoadRawResult;
+
+    /// Load an asset from some kind of raw input.
+    fn load_raw(&self, world: &World, input: Self::LoadRawInput) -> anyhow::Result<Self::LoadRawResult>;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
