@@ -45,13 +45,13 @@ impl Asset for BindlessArrayTextureAsset {
 
 /// The encoding of texture bytes passed to [`LoadableAssetVault::load`].
 ///
-/// Decoding itself is format-agnostic (backed by the `image` crate, which sniffs
-/// the actual file signature), so this only documents which encodings are
-/// supported and lets callers express intent.
+/// This selects the decoder explicitly rather than guessing from the file 
+/// signature, since some formats (e.g. TGA) have no magic bytes to sniff.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum BindlessArrayTextureType {
     PNG,
-    JPG
+    JPG,
+    TGA
 }
 
 /// The [`AssetVault`] resource for [`BindlessArrayTextureAsset`]s.
@@ -122,7 +122,7 @@ impl LoadableAssetVault for BindlessArrayTextureVault {
     type LoadType = BindlessArrayTextureType;
     type LoadResult = Handle<Self::Asset>;
 
-    fn load(&self, _world: &World, content: AssetContent, _ty: BindlessArrayTextureType) -> anyhow::Result<Handle<Self::Asset>> {
+    fn load(&self, _world: &World, content: AssetContent, ty: BindlessArrayTextureType) -> anyhow::Result<Handle<Self::Asset>> {
         // compute content hash
         let mut hasher = AHasher::default();
         content.hash(&mut hasher);
@@ -151,7 +151,14 @@ impl LoadableAssetVault for BindlessArrayTextureVault {
         Scheduler::run_async(async move {
             let result = async {
                 let bytes = content.into_bytes().await?;
-                let img = image::load_from_memory(&bytes)?;
+                // formats like TGA have no magic-byte signature, so the format must be
+                // supplied explicitly rather than guessed from the bytes
+                let format = match ty {
+                    BindlessArrayTextureType::PNG => image::ImageFormat::Png,
+                    BindlessArrayTextureType::JPG => image::ImageFormat::Jpeg,
+                    BindlessArrayTextureType::TGA => image::ImageFormat::Tga,
+                };
+                let img = image::load_from_memory_with_format(&bytes, format)?;
                 anyhow::Ok((img.dimensions(), img.to_rgba8()))
             }.await;
 
@@ -295,6 +302,7 @@ mod tests {
 
     const COBBLESTONE_PNG: &[u8] = include_bytes!("../../examples/cobblestone.png");
     const COBBLESTONE_JPG: &[u8] = include_bytes!("../../examples/cobblestone.jpg");
+    const COBBLESTONE_TGA: &[u8] = include_bytes!("../../examples/cobblestone.tga");
 
     fn wait_until(timeout: Duration, mut condition: impl FnMut() -> bool) -> bool {
         let start = Instant::now();
@@ -330,6 +338,20 @@ mod tests {
 
         let staged = vault.unloaded_textures.get(&hash).unwrap();
         let expected_dimensions = image::load_from_memory(COBBLESTONE_JPG).unwrap().dimensions();
+        assert_eq!(staged.2, expected_dimensions.into());
+    }
+
+    #[test]
+    fn load_decodes_tga_content_asynchronously() {
+        let world = World::default();
+        let vault = BindlessArrayTextureVault::default();
+        let handle = vault.load(&world, AssetContent::Binary(COBBLESTONE_TGA.into()), BindlessArrayTextureType::TGA).unwrap();
+        let hash = handle.inner.0;
+
+        assert!(wait_until(Duration::from_secs(5), || vault.unloaded_textures.contains_key(&hash)));
+
+        let staged = vault.unloaded_textures.get(&hash).unwrap();
+        let expected_dimensions = image::load_from_memory_with_format(COBBLESTONE_TGA, image::ImageFormat::Tga).unwrap().dimensions();
         assert_eq!(staged.2, expected_dimensions.into());
     }
 

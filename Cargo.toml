@@ -21,7 +21,7 @@ tobj = "3.2"
 [dependencies.image]
 version = "0.24"
 default-features = false
-features = ["png", "jpeg"]
+features = ["png", "jpeg", "tga"]
 
 [dev-dependencies]
 pollster = "1.0.1"
