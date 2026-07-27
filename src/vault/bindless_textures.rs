@@ -43,9 +43,15 @@ impl Asset for BindlessArrayTextureAsset {
     }
 }
 
+/// The encoding of texture bytes passed to [`LoadableAssetVault::load`].
+///
+/// Decoding itself is format-agnostic (backed by the `image` crate, which sniffs
+/// the actual file signature), so this only documents which encodings are
+/// supported and lets callers express intent.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum BindlessArrayTextureType {
-    PNG
+    PNG,
+    JPG
 }
 
 /// The [`AssetVault`] resource for [`BindlessArrayTextureAsset`]s.
@@ -288,6 +294,7 @@ mod tests {
     use std::time::{Duration, Instant};
 
     const COBBLESTONE_PNG: &[u8] = include_bytes!("../../examples/cobblestone.png");
+    const COBBLESTONE_JPG: &[u8] = include_bytes!("../../examples/cobblestone.jpg");
 
     fn wait_until(timeout: Duration, mut condition: impl FnMut() -> bool) -> bool {
         let start = Instant::now();
@@ -309,6 +316,20 @@ mod tests {
 
         let staged = vault.unloaded_textures.get(&hash).unwrap();
         let expected_dimensions = image::load_from_memory(COBBLESTONE_PNG).unwrap().dimensions();
+        assert_eq!(staged.2, expected_dimensions.into());
+    }
+
+    #[test]
+    fn load_decodes_jpg_content_asynchronously() {
+        let world = World::default();
+        let vault = BindlessArrayTextureVault::default();
+        let handle = vault.load(&world, AssetContent::Binary(COBBLESTONE_JPG.into()), BindlessArrayTextureType::JPG).unwrap();
+        let hash = handle.inner.0;
+
+        assert!(wait_until(Duration::from_secs(5), || vault.unloaded_textures.contains_key(&hash)));
+
+        let staged = vault.unloaded_textures.get(&hash).unwrap();
+        let expected_dimensions = image::load_from_memory(COBBLESTONE_JPG).unwrap().dimensions();
         assert_eq!(staged.2, expected_dimensions.into());
     }
 
