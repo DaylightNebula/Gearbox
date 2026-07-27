@@ -36,19 +36,22 @@ impl BasicMesh {
 
 impl Mesh for BasicMesh {
     fn create_pipeline<'a>(
-        &'a self, 
-        _vgpu: &VirtualGpu
-    ) -> PipelineBuilder<'a> {
-        Pipeline::builder("Normal Shader")
-            .source(
-                ShaderType::Vertex, 
-                ShaderSource {
-                    source: shaders::basic_vertex::SHADER_primary_vs_main.into(),
-                    main_function: "primary_vs_main".into()
-                }
-            )
-            .vertex(vertex_buffer_layout())
-            .vertex(instance_buffer_layout())
+        &self, 
+        _vgpu: &VirtualGpu,
+        _world: &World
+    ) -> anyhow::Result<PipelineBuilder<'a>> {
+        Ok(
+            Pipeline::builder("Normal Shader")
+                .source(
+                    ShaderType::Vertex, 
+                    ShaderSource {
+                        source: shaders::basic_vertex::SHADER_primary_vs_main.into(),
+                        main_function: "primary_vs_main".into()
+                    }
+                )
+                .vertex(vertex_buffer_layout())
+                .vertex(instance_buffer_layout())
+        )
     }
 
     fn draw(

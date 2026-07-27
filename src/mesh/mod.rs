@@ -3,11 +3,11 @@ use std::any::{Any, TypeId};
 use anarchy::{Entity, World, anyhow, macros::Component};
 use derive_more::{Deref, DerefMut};
 use magician_vgpu::{PipelineBuilder, SinglePass, VirtualGpu};
+use mutual::AsAny;
 
 pub mod basic;
 
 pub use basic::*;
-use mutual::AsAny;
 
 /// Standard trait for any drawable mesh type. `id` identifies the concrete mesh type
 /// (shared by all instances of that type, used to key material/mesh pipelines), and
@@ -16,9 +16,10 @@ pub trait Mesh: Any + AsAny {
     fn id(&self) -> TypeId { TypeId::of::<Self>() }
 
     fn create_pipeline<'a>(
-        &'a self,
-        vgpu: &VirtualGpu
-    ) -> PipelineBuilder<'a>;
+        &self,
+        vgpu: &VirtualGpu,
+        world: &World
+    ) -> anyhow::Result<PipelineBuilder<'a>>;
 
     fn draw(
         &self,

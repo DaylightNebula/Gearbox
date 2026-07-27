@@ -16,6 +16,7 @@ bytemuck = "1.25.0"
 ahash = "0.8.12"
 derive_more = "2.1.1"
 ureq = "3.3.0"
+tobj = "3.2"
 
 [dependencies.image]
 version = "0.24"

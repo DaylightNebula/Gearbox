@@ -2,3 +2,4 @@ shader_dbg/
 shader_out/
 /target
 *.lock
+*.obj

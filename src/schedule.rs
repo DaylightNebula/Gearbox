@@ -109,7 +109,7 @@ fn render_mesh_material(
             let mesh_mat_key = (mesh.id(), material.id());
             if !pipelines.contains_key(&mesh_mat_key) {
                 let pipeline = material.create_pipeline(&*graphics, world)?
-                    .merge(mesh.create_pipeline(&*graphics))
+                    .merge(mesh.create_pipeline(&*graphics, world)?)
                     .build(&*graphics);
                 pipelines.insert(mesh_mat_key, CowData::new(pipeline));
             }
