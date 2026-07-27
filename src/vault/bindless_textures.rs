@@ -51,7 +51,17 @@ impl Asset for BindlessArrayTextureAsset {
 pub enum BindlessArrayTextureType {
     PNG,
     JPG,
-    TGA
+    TGA,
+    BMP,
+    DDS,
+    FARBFELD,
+    HDR,
+    ICO,
+    OPENEXR,
+    PNM,
+    QOI,
+    TIFF,
+    WEBP
 }
 
 /// The [`AssetVault`] resource for [`BindlessArrayTextureAsset`]s.
@@ -157,16 +167,31 @@ impl LoadableAssetVault for BindlessArrayTextureVault {
                     BindlessArrayTextureType::PNG => image::ImageFormat::Png,
                     BindlessArrayTextureType::JPG => image::ImageFormat::Jpeg,
                     BindlessArrayTextureType::TGA => image::ImageFormat::Tga,
+                    BindlessArrayTextureType::BMP => image::ImageFormat::Bmp,
+                    BindlessArrayTextureType::DDS => image::ImageFormat::Dds,
+                    BindlessArrayTextureType::FARBFELD => image::ImageFormat::Farbfeld,
+                    BindlessArrayTextureType::HDR => image::ImageFormat::Hdr,
+                    BindlessArrayTextureType::ICO => image::ImageFormat::Ico,
+                    BindlessArrayTextureType::OPENEXR => image::ImageFormat::OpenExr,
+                    BindlessArrayTextureType::PNM => image::ImageFormat::Pnm,
+                    BindlessArrayTextureType::QOI => image::ImageFormat::Qoi,
+                    BindlessArrayTextureType::TIFF => image::ImageFormat::Tiff,
+                    BindlessArrayTextureType::WEBP => image::ImageFormat::WebP,
                 };
                 let img = image::load_from_memory_with_format(&bytes, format)?;
                 anyhow::Ok((img.dimensions(), img.to_rgba8()))
             }.await;
 
-            let Some(staged_handle) = inner.pending_loads.get(&hash) else { return };
+            // `remove` moves the handle out in one step rather than `get` (holding a read
+            // guard) followed by a separate `remove` (which needs a write lock on the same
+            // shard -- holding both at once self-deadlocks). It also avoids transiently
+            // cloning the handle, which would push its refcount up and back down across
+            // `unload_threshold` and could trigger a spurious unload of the entry we're
+            // about to insert.
+            let Some((_, staged_handle)) = inner.pending_loads.remove(&hash) else { return };
             match result {
-                Ok((dimensions, rgba)) => { 
-                    inner.unloaded_textures.insert(hash, (staged_handle.clone(), rgba, dimensions.into()));
-                    inner.pending_loads.remove(&hash);
+                Ok((dimensions, rgba)) => {
+                    inner.unloaded_textures.insert(hash, (staged_handle, rgba, dimensions.into()));
                 }
                 Err(err) => eprintln!("Failed to load bindless texture: {err}"),
             }
@@ -303,6 +328,16 @@ mod tests {
     const COBBLESTONE_PNG: &[u8] = include_bytes!("../../examples/cobblestone.png");
     const COBBLESTONE_JPG: &[u8] = include_bytes!("../../examples/cobblestone.jpg");
     const COBBLESTONE_TGA: &[u8] = include_bytes!("../../examples/cobblestone.tga");
+    const COBBLESTONE_BMP: &[u8] = include_bytes!("../../examples/cobblestone.bmp");
+    const COBBLESTONE_DDS: &[u8] = include_bytes!("../../examples/cobblestone.dds");
+    const COBBLESTONE_FARBFELD: &[u8] = include_bytes!("../../examples/cobblestone.ff");
+    const COBBLESTONE_HDR: &[u8] = include_bytes!("../../examples/cobblestone.hdr");
+    const COBBLESTONE_ICO: &[u8] = include_bytes!("../../examples/cobblestone.ico");
+    const COBBLESTONE_EXR: &[u8] = include_bytes!("../../examples/cobblestone.exr");
+    const COBBLESTONE_PNM: &[u8] = include_bytes!("../../examples/cobblestone.ppm");
+    const COBBLESTONE_QOI: &[u8] = include_bytes!("../../examples/cobblestone.qoi");
+    const COBBLESTONE_TIFF: &[u8] = include_bytes!("../../examples/cobblestone.tiff");
+    const COBBLESTONE_WEBP: &[u8] = include_bytes!("../../examples/cobblestone.webp");
 
     fn wait_until(timeout: Duration, mut condition: impl FnMut() -> bool) -> bool {
         let start = Instant::now();
@@ -313,46 +348,84 @@ mod tests {
         false
     }
 
-    #[test]
-    fn load_decodes_binary_content_asynchronously() {
+    /// Loads `bytes` as `ty` and asserts it gets decoded and staged with the
+    /// dimensions `image` itself reports for that format.
+    fn assert_decodes(bytes: &'static [u8], ty: BindlessArrayTextureType, format: image::ImageFormat) {
         let world = World::default();
         let vault = BindlessArrayTextureVault::default();
-        let handle = vault.load(&world, AssetContent::Binary(COBBLESTONE_PNG.into()), BindlessArrayTextureType::PNG).unwrap();
+        let handle = vault.load(&world, AssetContent::Binary(bytes.into()), ty).unwrap();
         let hash = handle.inner.0;
 
         assert!(wait_until(Duration::from_secs(5), || vault.unloaded_textures.contains_key(&hash)));
 
         let staged = vault.unloaded_textures.get(&hash).unwrap();
-        let expected_dimensions = image::load_from_memory(COBBLESTONE_PNG).unwrap().dimensions();
+        let expected_dimensions = image::load_from_memory_with_format(bytes, format).unwrap().dimensions();
         assert_eq!(staged.2, expected_dimensions.into());
+    }
+
+    #[test]
+    fn load_decodes_binary_content_asynchronously() {
+        assert_decodes(COBBLESTONE_PNG, BindlessArrayTextureType::PNG, image::ImageFormat::Png);
     }
 
     #[test]
     fn load_decodes_jpg_content_asynchronously() {
-        let world = World::default();
-        let vault = BindlessArrayTextureVault::default();
-        let handle = vault.load(&world, AssetContent::Binary(COBBLESTONE_JPG.into()), BindlessArrayTextureType::JPG).unwrap();
-        let hash = handle.inner.0;
-
-        assert!(wait_until(Duration::from_secs(5), || vault.unloaded_textures.contains_key(&hash)));
-
-        let staged = vault.unloaded_textures.get(&hash).unwrap();
-        let expected_dimensions = image::load_from_memory(COBBLESTONE_JPG).unwrap().dimensions();
-        assert_eq!(staged.2, expected_dimensions.into());
+        assert_decodes(COBBLESTONE_JPG, BindlessArrayTextureType::JPG, image::ImageFormat::Jpeg);
     }
 
     #[test]
     fn load_decodes_tga_content_asynchronously() {
-        let world = World::default();
-        let vault = BindlessArrayTextureVault::default();
-        let handle = vault.load(&world, AssetContent::Binary(COBBLESTONE_TGA.into()), BindlessArrayTextureType::TGA).unwrap();
-        let hash = handle.inner.0;
+        assert_decodes(COBBLESTONE_TGA, BindlessArrayTextureType::TGA, image::ImageFormat::Tga);
+    }
 
-        assert!(wait_until(Duration::from_secs(5), || vault.unloaded_textures.contains_key(&hash)));
+    #[test]
+    fn load_decodes_bmp_content_asynchronously() {
+        assert_decodes(COBBLESTONE_BMP, BindlessArrayTextureType::BMP, image::ImageFormat::Bmp);
+    }
 
-        let staged = vault.unloaded_textures.get(&hash).unwrap();
-        let expected_dimensions = image::load_from_memory_with_format(COBBLESTONE_TGA, image::ImageFormat::Tga).unwrap().dimensions();
-        assert_eq!(staged.2, expected_dimensions.into());
+    #[test]
+    fn load_decodes_dds_content_asynchronously() {
+        assert_decodes(COBBLESTONE_DDS, BindlessArrayTextureType::DDS, image::ImageFormat::Dds);
+    }
+
+    #[test]
+    fn load_decodes_farbfeld_content_asynchronously() {
+        assert_decodes(COBBLESTONE_FARBFELD, BindlessArrayTextureType::FARBFELD, image::ImageFormat::Farbfeld);
+    }
+
+    #[test]
+    fn load_decodes_hdr_content_asynchronously() {
+        assert_decodes(COBBLESTONE_HDR, BindlessArrayTextureType::HDR, image::ImageFormat::Hdr);
+    }
+
+    #[test]
+    fn load_decodes_ico_content_asynchronously() {
+        assert_decodes(COBBLESTONE_ICO, BindlessArrayTextureType::ICO, image::ImageFormat::Ico);
+    }
+
+    #[test]
+    fn load_decodes_openexr_content_asynchronously() {
+        assert_decodes(COBBLESTONE_EXR, BindlessArrayTextureType::OPENEXR, image::ImageFormat::OpenExr);
+    }
+
+    #[test]
+    fn load_decodes_pnm_content_asynchronously() {
+        assert_decodes(COBBLESTONE_PNM, BindlessArrayTextureType::PNM, image::ImageFormat::Pnm);
+    }
+
+    #[test]
+    fn load_decodes_qoi_content_asynchronously() {
+        assert_decodes(COBBLESTONE_QOI, BindlessArrayTextureType::QOI, image::ImageFormat::Qoi);
+    }
+
+    #[test]
+    fn load_decodes_tiff_content_asynchronously() {
+        assert_decodes(COBBLESTONE_TIFF, BindlessArrayTextureType::TIFF, image::ImageFormat::Tiff);
+    }
+
+    #[test]
+    fn load_decodes_webp_content_asynchronously() {
+        assert_decodes(COBBLESTONE_WEBP, BindlessArrayTextureType::WEBP, image::ImageFormat::WebP);
     }
 
     #[test]

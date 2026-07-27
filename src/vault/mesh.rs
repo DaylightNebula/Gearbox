@@ -164,11 +164,16 @@ impl LoadableAssetVault for MeshAssetVault {
                 }
             }.await;
 
-            let Some(staged_handle) = inner.pending_loads.get(&hash) else { return };
+            // `remove` moves the handle out in one step rather than `get` (holding a read
+            // guard) followed by a separate `remove` (which needs a write lock on the same
+            // shard -- holding both at once self-deadlocks). It also avoids transiently
+            // cloning the handle, which would push its refcount up and back down across
+            // `unload_threshold` and could trigger a spurious unload of the entry we're
+            // about to insert.
+            let Some((_, staged_handle)) = inner.pending_loads.remove(&hash) else { return };
             match result {
                 Ok(mesh_data) => {
-                    inner.unloaded_meshes.insert(hash, (staged_handle.clone(), mesh_data));
-                    inner.pending_loads.remove(&hash);
+                    inner.unloaded_meshes.insert(hash, (staged_handle, mesh_data));
                 }
                 Err(err) => eprintln!("Failed to load mesh: {err}"),
             }
