@@ -18,7 +18,7 @@ fn startup_triangle(
     vault: Res<BindlessArrayTextureVault>,
     materials: Res<MaterialVault>
 ) {
-    let texture_handle = AssetContent::Binary(Box::new(*include_bytes!("./cobblestone.png")));
+    let texture_handle = AssetContent::LocalPath("./examples/cobblestone.png".into());
     let texture_handle = vault.load(world, texture_handle, BindlessArrayTextureType::PNG)?;
     let mat_handle = materials.allocate(1)?;
     materials.store(world, mat_handle.clone(), Box::new(SimpleTexturedMaterial::new(texture_handle)));
