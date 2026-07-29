@@ -1,0 +1,3 @@
+[build]
+example = "egui"
+target = "index.html"

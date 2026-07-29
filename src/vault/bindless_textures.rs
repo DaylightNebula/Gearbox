@@ -69,7 +69,7 @@ pub enum BindlessArrayTextureType {
 /// A cheaply-clonable handle to the shared vault state; register one instance of
 /// this as an ECS [`Resource`](anarchy::Resource) and load textures through it via
 /// [`AssetVault::load`].
-#[derive(Resource, Default, Deref, DerefMut)]
+#[derive(Resource, Default, Clone, Deref, DerefMut)]
 pub struct BindlessArrayTextureVault(Arc<BindlessArrayTextureVaultInner>);
 
 /// Shared state backing a [`BindlessArrayTextureVault`].

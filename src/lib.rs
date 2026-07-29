@@ -43,6 +43,7 @@ impl Plugin for GearboxRenderPlugin {
     fn build(self, app: App) -> App {
         app.add_plugin(MainRenderPassPlugin)
             .add_plugin(BindlessTexturesPlugin)
+            .add_plugin(AtlasTexturesPlugin)
             .add_plugin(MeshAssetPlugin)
             .add_resource(MaterialPipelineStorage::default())
             .add_resource(MaterialVault::default())

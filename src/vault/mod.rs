@@ -9,15 +9,19 @@ use std::path::PathBuf;
 use anarchy::{Resource, World, anyhow};
 use magician_vgpu::{SinglePass, VirtualGpu};
 
+pub mod atlas_textures;
 pub mod bindless_textures;
 pub mod handles;
 pub mod material;
 pub mod mesh;
+pub mod texture_vault;
 
+pub use atlas_textures::*;
 pub use bindless_textures::*;
 pub use handles::*;
 pub use material::*;
 pub use mesh::*;
+pub use texture_vault::*;
 
 /// A type of asset that can be loaded into and unloaded from an [`AssetVault`].
 ///

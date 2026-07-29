@@ -13,7 +13,7 @@ shaders = { path = "./shaders" }
 winit = { version = "0.30", features = ["android-native-activity"] }
 wgpu = "29.0"
 bytemuck = "1.25.0"
-ahash = "0.8.12"
+ahash = { version = "0.8.12", default-features = false, features = ["std", "compile-time-rng"] }
 derive_more = "2.1.1"
 ureq = "3.3.0"
 tobj = "3.2"

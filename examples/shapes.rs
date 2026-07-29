@@ -1,7 +1,7 @@
 use anarchy::{EntityBuilder, Query, World, WorldDatabase, anyhow};
 use anarchy::{Res, macros::system};
 use cell::{App, Graphics};
-use gearbox::{AssetContent, BindlessArrayTextureType, BindlessArrayTextureVault, GearboxRenderPlugin, Handle, LazyAssetVault, LoadableAssetVault, Material, MaterialRef, MaterialVault, MeshRef, ShapeBuilder, SimpleTexturedMaterial, glam::*};
+use gearbox::{AssetContent, BindlessArrayTextureType, GearboxRenderPlugin, Handle, LazyAssetVault, Material, MaterialRef, MaterialVault, MeshRef, ShapeBuilder, SimpleTexturedMaterial, TextureVault, glam::*};
 use gearbox::{Camera, Transform};
 
 fn main() -> anyhow::Result<()> {
@@ -15,9 +15,9 @@ fn main() -> anyhow::Result<()> {
 #[system]
 fn startup_triangle(
     graphics: Res<Graphics>,
-    vault: Res<BindlessArrayTextureVault>,
     materials: Res<MaterialVault>
 ) {
+    let vault = TextureVault::current(world, &graphics)?;
     let texture_handle = AssetContent::LocalPath("./examples/cobblestone.png".into());
     let texture_handle = vault.load(world, texture_handle, BindlessArrayTextureType::PNG)?;
     let mat_handle = materials.allocate(1)?;

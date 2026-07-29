@@ -1,6 +1,6 @@
 use anarchy::{EntityBuilder, Query, Res, WorldDatabase, anyhow, macros::system};
-use cell::App;
-use gearbox::{AssetContent, BindlessArrayTextureType, BindlessArrayTextureVault, Camera, GearboxRenderPlugin, LazyAssetVault, LoadableAssetVault, MaterialRef, MaterialVault, MeshAssetVault, MeshLoadType, MeshRef, SimpleTexturedMaterial, Transform};
+use cell::{App, Graphics};
+use gearbox::{AssetContent, BindlessArrayTextureType, Camera, GearboxRenderPlugin, LazyAssetVault, LoadableAssetVault, MaterialRef, MaterialVault, MeshAssetVault, MeshLoadType, MeshRef, SimpleTexturedMaterial, TextureVault, Transform};
 use magician_vgpu::glam::{self, Quat};
 
 fn main() -> anyhow::Result<()> {
@@ -13,11 +13,12 @@ fn main() -> anyhow::Result<()> {
 
 #[system]
 fn setup(
+    graphics: Res<Graphics>,
     meshes: Res<MeshAssetVault>,
-    vault: Res<BindlessArrayTextureVault>,
     materials: Res<MaterialVault>
 ) {
     let mesh = meshes.load(world, AssetContent::LocalPath("./examples/SM_Prop_Bonsai_01.obj".into()), MeshLoadType::OBJ)?;
+    let vault = TextureVault::current(world, &graphics)?;
     let texture_handle = AssetContent::LocalPath("./examples/cobblestone.png".into());
     let texture_handle = vault.load(world, texture_handle, BindlessArrayTextureType::PNG)?;
     let mat_handle = materials.allocate(1)?;
