@@ -67,7 +67,10 @@ impl AssetContent {
             AssetContent::Binary(bytes) => bytes,
             AssetContent::Content(text) => text.into_bytes().into_boxed_slice(),
             AssetContent::LocalPath(path) => std::fs::read(path)?.into_boxed_slice(),
+            #[cfg(not(target_arch = "wasm32"))]
             AssetContent::Url(url) => ureq::get(&url).call()?.body_mut().read_to_vec()?.into_boxed_slice(),
+            #[cfg(target_arch = "wasm32")]
+            AssetContent::Url(_url) => anyhow::bail!("URL asset loading is not supported on wasm32"),
         })
     }
 }

@@ -15,7 +15,6 @@ wgpu = "29.0"
 bytemuck = "1.25.0"
 ahash = { version = "0.8.12", default-features = false, features = ["std", "compile-time-rng"] }
 derive_more = "2.1.1"
-ureq = "3.3.0"
 tobj = "3.2"
 
 [dependencies.image]
@@ -25,3 +24,9 @@ features = ["png", "jpeg", "tga", "bmp", "dds", "farbfeld", "hdr", "ico", "opene
 
 [dev-dependencies]
 pollster = "1.0.1"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+ureq = "3.3.0"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.3", features = ["wasm_js"] }

@@ -1,5 +1,6 @@
 shader_dbg/
 shader_out/
 /target
+/dist
 *.lock
 *.obj
