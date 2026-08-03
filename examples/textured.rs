@@ -1,6 +1,6 @@
 use anarchy::{EntityBuilder, Query, Res, WorldDatabase, anyhow, macros::system};
 use cell::{App, Graphics};
-use gearbox::{AssetContent, BasicMesh, BindlessArrayTextureType, Camera, GearboxRenderPlugin, LazyAssetVault, MaterialRef, MaterialVault, MeshRef, SimpleTexturedMaterial, TextureVault, Transform};
+use gearbox::{AssetContent, BasicMesh, TextureType, Camera, GearboxRenderPlugin, LazyAssetVault, MaterialRef, MaterialVault, MeshRef, SimpleTexturedMaterial, TextureVault, Transform};
 use magician_vgpu::{glam::{self, Quat}, rust::{Vec2, Vec3}};
 use shaders::basic_vertex;
 
@@ -29,9 +29,12 @@ fn setup(
         &[0, 1, 2]
     );
 
+    // let mat_handle = materials.allocate(1)?;
+    // materials.store(world, mat_handle.clone(), Box::new(BasicMaterial::new(glam::Vec4::new(0.1, 0.8, 0.2, 1.0))));
+
     let vault = TextureVault::current(world, &graphics)?;
     let texture_handle = AssetContent::LocalPath("./examples/cobblestone.png".into());
-    let texture_handle = vault.load(world, texture_handle, BindlessArrayTextureType::PNG)?;
+    let texture_handle = vault.load(world, texture_handle, TextureType::PNG)?;
     let mat_handle = materials.allocate(1)?;
     materials.store(world, mat_handle.clone(), Box::new(SimpleTexturedMaterial::new(texture_handle)));
 

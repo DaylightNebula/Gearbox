@@ -12,11 +12,11 @@
 use anarchy::{World, anyhow::{self, Context}};
 use cell::Graphics;
 
-use crate::{AssetContent, AtlasTextureAsset, AtlasTextureVault, BindlessArrayTextureAsset, BindlessArrayTextureType, BindlessArrayTextureVault, Handle, LoadableAssetVault};
+use crate::{AssetContent, AtlasTextureAsset, AtlasTextureVault, BindlessArrayTextureAsset, TextureType, BindlessArrayTextureVault, Handle, LoadableAssetVault};
 
 /// A handle to a texture loaded through a [`TextureVault`], regardless of which concrete
 /// backend loaded it.
-#[derive(Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum TextureHandle {
     Bindless(Handle<BindlessArrayTextureAsset>),
     Atlas(Handle<AtlasTextureAsset>)
@@ -46,7 +46,7 @@ impl TextureVault {
 
     /// Loads (or looks up an existing handle for) the texture described by `content`,
     /// through whichever backend is active.
-    pub fn load(&self, world: &World, content: AssetContent, ty: BindlessArrayTextureType) -> anyhow::Result<TextureHandle> {
+    pub fn load(&self, world: &World, content: AssetContent, ty: TextureType) -> anyhow::Result<TextureHandle> {
         match self {
             Self::Bindless(vault) => vault.load(world, content, ty).map(TextureHandle::Bindless),
             Self::Atlas(vault) => vault.load(world, content, ty).map(TextureHandle::Atlas),

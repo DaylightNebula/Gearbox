@@ -7,14 +7,14 @@
 use std::{hash::{Hash, Hasher}, marker::PhantomData, sync::{Arc, atomic::{AtomicBool, Ordering}}};
 
 use ahash::AHasher;
-use anarchy::{Res, Scheduler, World, anyhow::{self, bail}, macros::{Getters, Resource, system}};
+use anarchy::{Res, Scheduler, World, anyhow::{self, bail}, macros::{Getters, Resource, error, system}};
 use cell::{App, Graphics, Plugin};
 use derive_more::{Deref, DerefMut};
 use image::{GenericImageView, ImageBuffer, Rgba};
 use magician_vgpu::{BindGroupProvider, Buffer, MutableBuffer, SinglePass, StaticTexture, Texture, VirtualGpu, WritableBuffer, glam::UVec2, rust::Vec4};
 use mutual::{CowData, DashMap, Ref, RefGuard, RelaxedMutex, SharedData};
 
-use crate::{Asset, AssetContent, AssetVault, BindableAssetVault, BindlessArrayTextureType, Handle, HandleInner, LoadableAssetVault, shaders};
+use crate::{Asset, AssetContent, AssetVault, BindableAssetVault, TextureType, Handle, HandleInner, LoadableAssetVault, shaders};
 
 /// Plugin that adds the [`AtlasTextureVault`] asset vault resource to the app as well
 /// as the needed upkeep systems.
@@ -174,10 +174,10 @@ impl AssetVault for AtlasTextureVault {
 }
 
 impl LoadableAssetVault for AtlasTextureVault {
-    type LoadType = BindlessArrayTextureType;
+    type LoadType = TextureType;
     type LoadResult = Handle<Self::Asset>;
 
-    fn load(&self, _world: &World, content: AssetContent, ty: BindlessArrayTextureType) -> anyhow::Result<Handle<Self::Asset>> {
+    fn load(&self, _world: &World, content: AssetContent, ty: TextureType) -> anyhow::Result<Handle<Self::Asset>> {
         // compute content hash
         let mut hasher = AHasher::default();
         content.hash(&mut hasher);
@@ -209,19 +209,19 @@ impl LoadableAssetVault for AtlasTextureVault {
                 // formats like TGA have no magic-byte signature, so the format must be
                 // supplied explicitly rather than guessed from the bytes
                 let format = match ty {
-                    BindlessArrayTextureType::PNG => image::ImageFormat::Png,
-                    BindlessArrayTextureType::JPG => image::ImageFormat::Jpeg,
-                    BindlessArrayTextureType::TGA => image::ImageFormat::Tga,
-                    BindlessArrayTextureType::BMP => image::ImageFormat::Bmp,
-                    BindlessArrayTextureType::DDS => image::ImageFormat::Dds,
-                    BindlessArrayTextureType::FARBFELD => image::ImageFormat::Farbfeld,
-                    BindlessArrayTextureType::HDR => image::ImageFormat::Hdr,
-                    BindlessArrayTextureType::ICO => image::ImageFormat::Ico,
-                    BindlessArrayTextureType::OPENEXR => image::ImageFormat::OpenExr,
-                    BindlessArrayTextureType::PNM => image::ImageFormat::Pnm,
-                    BindlessArrayTextureType::QOI => image::ImageFormat::Qoi,
-                    BindlessArrayTextureType::TIFF => image::ImageFormat::Tiff,
-                    BindlessArrayTextureType::WEBP => image::ImageFormat::WebP,
+                    TextureType::PNG => image::ImageFormat::Png,
+                    TextureType::JPG => image::ImageFormat::Jpeg,
+                    TextureType::TGA => image::ImageFormat::Tga,
+                    TextureType::BMP => image::ImageFormat::Bmp,
+                    TextureType::DDS => image::ImageFormat::Dds,
+                    TextureType::FARBFELD => image::ImageFormat::Farbfeld,
+                    TextureType::HDR => image::ImageFormat::Hdr,
+                    TextureType::ICO => image::ImageFormat::Ico,
+                    TextureType::OPENEXR => image::ImageFormat::OpenExr,
+                    TextureType::PNM => image::ImageFormat::Pnm,
+                    TextureType::QOI => image::ImageFormat::Qoi,
+                    TextureType::TIFF => image::ImageFormat::Tiff,
+                    TextureType::WEBP => image::ImageFormat::WebP,
                 };
                 let img = image::load_from_memory_with_format(&bytes, format)?;
                 anyhow::Ok((img.dimensions(), img.to_rgba8()))
@@ -232,7 +232,7 @@ impl LoadableAssetVault for AtlasTextureVault {
                 Ok((dimensions, rgba)) => {
                     inner.unloaded_textures.insert(hash, (staged_handle, rgba, dimensions.into()));
                 }
-                Err(err) => eprintln!("Failed to load atlas texture: {err}"),
+                Err(err) => error!("Failed to load atlas texture: {err}"),
             }
         });
 
@@ -382,7 +382,7 @@ mod tests {
     fn load_decodes_binary_content_asynchronously() {
         let world = World::default();
         let vault = AtlasTextureVault::default();
-        let handle = vault.load(&world, AssetContent::Binary(COBBLESTONE_PNG.into()), BindlessArrayTextureType::PNG).unwrap();
+        let handle = vault.load(&world, AssetContent::Binary(COBBLESTONE_PNG.into()), TextureType::PNG).unwrap();
         let hash = handle.inner.0;
 
         assert!(wait_until(Duration::from_secs(5), || vault.unloaded_textures.contains_key(&hash)));
@@ -396,11 +396,11 @@ mod tests {
     fn load_deduplicates_identical_content_once_staged() {
         let world = World::default();
         let vault = AtlasTextureVault::default();
-        let first = vault.load(&world, AssetContent::Binary(COBBLESTONE_PNG.into()), BindlessArrayTextureType::PNG).unwrap();
+        let first = vault.load(&world, AssetContent::Binary(COBBLESTONE_PNG.into()), TextureType::PNG).unwrap();
         let hash = first.inner.0;
         assert!(wait_until(Duration::from_secs(5), || vault.unloaded_textures.contains_key(&hash)));
 
-        let second = vault.load(&world, AssetContent::Binary(COBBLESTONE_PNG.into()), BindlessArrayTextureType::PNG).unwrap();
+        let second = vault.load(&world, AssetContent::Binary(COBBLESTONE_PNG.into()), TextureType::PNG).unwrap();
 
         assert_eq!(second.inner.0, hash);
         assert_eq!(vault.unloaded_textures.len(), 1);
@@ -410,8 +410,8 @@ mod tests {
     fn load_before_decode_finishes_joins_in_flight_load() {
         let world = World::default();
         let vault = AtlasTextureVault::default();
-        let first = vault.load(&world, AssetContent::Binary(COBBLESTONE_PNG.into()), BindlessArrayTextureType::PNG).unwrap();
-        let second = vault.load(&world, AssetContent::Binary(COBBLESTONE_PNG.into()), BindlessArrayTextureType::PNG).unwrap();
+        let first = vault.load(&world, AssetContent::Binary(COBBLESTONE_PNG.into()), TextureType::PNG).unwrap();
+        let second = vault.load(&world, AssetContent::Binary(COBBLESTONE_PNG.into()), TextureType::PNG).unwrap();
 
         assert_eq!(first.inner.0, second.inner.0);
         assert_eq!(vault.pending_loads.len() + vault.unloaded_textures.len(), 1);
@@ -431,7 +431,7 @@ mod tests {
             std::thread::spawn(move || {
                 let world = World::default();
                 barrier.wait();
-                vault.load(&world, AssetContent::Binary(COBBLESTONE_PNG.into()), BindlessArrayTextureType::PNG).unwrap()
+                vault.load(&world, AssetContent::Binary(COBBLESTONE_PNG.into()), TextureType::PNG).unwrap()
             })
         }).collect();
 

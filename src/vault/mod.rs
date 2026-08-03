@@ -66,13 +66,57 @@ impl AssetContent {
         Ok(match self {
             AssetContent::Binary(bytes) => bytes,
             AssetContent::Content(text) => text.into_bytes().into_boxed_slice(),
+            #[cfg(not(target_arch = "wasm32"))]
             AssetContent::LocalPath(path) => std::fs::read(path)?.into_boxed_slice(),
+            #[cfg(target_arch = "wasm32")]
+            AssetContent::LocalPath(path) => {
+                let bytes = fetch_websys_bytes(path.to_str().unwrap()).await;
+                if bytes.is_ok() {
+                    bytes.unwrap().into_boxed_slice()
+                } else {
+                    anyhow::bail!("JS Value: {:?}", bytes.unwrap_err())
+                }
+            },
+            // AssetContent::LocalPath(path) => fetch_websys_bytes(path.to_str().unwrap())
+            //     .await
+            //     .map_err(|error| anyhow::anyhow!("JS error: {:?}", error))?
+            //     .into_boxed_slice(),
             #[cfg(not(target_arch = "wasm32"))]
             AssetContent::Url(url) => ureq::get(&url).call()?.body_mut().read_to_vec()?.into_boxed_slice(),
             #[cfg(target_arch = "wasm32")]
             AssetContent::Url(_url) => anyhow::bail!("URL asset loading is not supported on wasm32"),
         })
     }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn resolve_relative(relative: &str) -> String {
+    let location = web_sys::window().unwrap().location();
+    let origin = location.origin().unwrap();      // "http://localhost:8080"
+    let pathname = location.pathname().unwrap();   // "/test"
+    let base = pathname.trim_end_matches('/');     // "/test"
+    format!("{origin}{base}/{relative}")           // "http://localhost:8080/test/texture/1.png"
+}
+
+#[cfg(target_arch = "wasm32")]
+async fn fetch_websys_bytes(relative_path: &str) -> Result<Vec<u8>, wasm_bindgen::JsValue> {
+    use wasm_bindgen::JsCast;
+    use wasm_bindgen_futures::JsFuture;
+    use web_sys::{Request, RequestInit, RequestMode, Response};
+
+    let url = resolve_relative(relative_path);
+
+    let opts = RequestInit::new();
+    opts.set_method("GET");
+    opts.set_mode(RequestMode::Cors);
+
+    let request = Request::new_with_str_and_init(&url, &opts)?;
+    let win = web_sys::window().unwrap();
+    let resp_value = JsFuture::from(win.fetch_with_request(&request)).await?;
+    let resp: Response = resp_value.dyn_into()?;
+
+    let buf = JsFuture::from(resp.array_buffer()?).await?;
+    Ok(js_sys::Uint8Array::new(&buf).to_vec())
 }
 
 /// An ECS [`Resource`] that owns and manages the lifecycle of a single [`Asset`] type.
