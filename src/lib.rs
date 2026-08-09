@@ -47,6 +47,7 @@ impl Plugin for GearboxRenderPlugin {
             .add_plugin(MeshAssetPlugin)
             .add_resource(MaterialPipelineStorage::default())
             .add_resource(MaterialVault::default())
+            .add_resource(ClearColor(Vec4::new(0.1, 0.2, 0.3, 1.0)))
             .on_render_update(update_cameras)
             .on_render_update(begin_main_pass)
             .on_render_update(execute_render_schedule)
@@ -61,6 +62,11 @@ impl Plugin for GearboxRenderPlugin {
 /// entity.
 #[derive(Resource, Deref, DerefMut)]
 pub struct MainPassPassthrough(SinglePass);
+
+/// The color the main render pass's color attachment is cleared to before drawing.
+/// Defaults to a dark blue-grey; mutate via `world.get_resource_mut::<ClearColor>()`.
+#[derive(Resource, Deref, DerefMut, Clone, Copy)]
+pub struct ClearColor(pub Vec4);
 
 /// Used to update all cameras at the earlist possible moment in the render schedule.
 /// This provides up-to-date camera information to anyone using the cameras for rendering.
@@ -85,7 +91,8 @@ pub fn begin_main_pass(
     camera: Query<&mut Camera>,
     schedule: Res<MainRenderPassSchedule>,
     delta_time: Res<DeltaTime>,
-    window_dimensions: Res<WindowDimensions>
+    window_dimensions: Res<WindowDimensions>,
+    clear_color: Res<ClearColor>
 ) {
     // get primary (first) camera
     let Some(mut camera) = camera.as_iter().next() else { return Ok(()) };
@@ -111,7 +118,7 @@ pub fn begin_main_pass(
         &[
             PassAttachment {
                 target: PassTarget::PassOutput,
-                load_op: LoadOp::Clear(Vec4::new(0.1, 0.2, 0.3, 1.0)),
+                load_op: LoadOp::Clear(***clear_color),
                 store_op: StoreOp::Store
             }
         ], 
