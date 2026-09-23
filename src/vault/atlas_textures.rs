@@ -14,7 +14,7 @@ use image::{GenericImageView, ImageBuffer, Rgba};
 use magician_vgpu::{BindGroupProvider, Buffer, MutableBuffer, SinglePass, StaticTexture, Texture, VirtualGpu, WritableBuffer, glam::UVec2, rust::Vec4};
 use mutual::{CowData, DashMap, Ref, RefGuard, RelaxedMutex, SharedData};
 
-use crate::{Asset, AssetContent, AssetVault, BindableAssetVault, TextureType, Handle, HandleInner, LoadableAssetVault, shaders};
+use crate::{Asset, AssetContent, AssetVault, BindableAssetVault, Handle, HandleInner, LoadableAssetVault, TextureHandle, TextureType, shaders};
 
 /// Plugin that adds the [`AtlasTextureVault`] asset vault resource to the app as well
 /// as the needed upkeep systems.
@@ -22,6 +22,7 @@ pub struct AtlasTexturesPlugin;
 impl Plugin for AtlasTexturesPlugin {
     fn build(self, app: App) -> App {
         app.add_resource(AtlasTextureVault::default())
+            .on_render_startup(setup_blank_texture)
             .on_render_update(update_atlas_textures)
     }
 }
@@ -124,6 +125,7 @@ pub struct AtlasTextureVaultInner {
     page: CowData<StaticTexture>,
     atlas_size_buffer: CowData<MutableBuffer<Vec4>>,
     bind_group: CowData<wgpu::BindGroup>,
+    empty_texture: CowData<Handle<AtlasTextureAsset>>,
     dirty: AtomicBool
 }
 
@@ -147,6 +149,7 @@ impl Default for AtlasTextureVaultInner {
             page: CowData::null(),
             atlas_size_buffer: CowData::null(),
             bind_group: CowData::null(),
+            empty_texture: CowData::null(),
             dirty: AtomicBool::new(false)
         }
     }
@@ -251,10 +254,17 @@ impl BindableAssetVault for AtlasTextureVault {
         pass: &mut SinglePass,
         bind_group: u32
     ) -> anyhow::Result<()> {
-        if self.texture_arr.lock_ref().len() < 1 { bail!("No loaded textures") }
+        // if self.texture_arr.lock_ref().len() < 1 { bail!("No loaded textures") }
         if self.bind_group.is_null() { bail!("Missing bind group for atlas textures") }
         pass.bind_raw(bind_group, &self.bind_group.get_ref());
         Ok(())
+    }
+}
+
+impl AtlasTextureVault {
+    pub fn empty_texture(&self) -> anyhow::Result<TextureHandle> {
+        if self.empty_texture.is_null() { bail!("No empty texture created yet") }
+        Ok(TextureHandle::Atlas(self.empty_texture.get_ref().clone()))
     }
 }
 
@@ -264,6 +274,19 @@ fn atlas_page_descriptor() -> magician_vgpu::TextureDescriptor {
         usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::COPY_SRC,
         ..Default::default()
     }
+}
+
+#[system(std::i32::MIN)]
+pub fn setup_blank_texture(
+    graphics: Res<Graphics>,
+    vault: Res<AtlasTextureVault>
+) {
+    let handle = vault.load(
+        world, 
+        AssetContent::Binary(Box::new(*include_bytes!("../../1x1.bmp"))), 
+        TextureType::BMP
+    )?;
+    vault.empty_texture.set(handle);
 }
 
 #[system(std::i32::MIN)]
@@ -322,7 +345,7 @@ pub fn update_atlas_textures(
     }
 
     // check if bind group needs rebuilding
-    if (vault.dirty.swap(false, Ordering::AcqRel) || vault.bind_group.is_null()) && !vault.texture_arr.lock_mut().is_empty() {
+    if vault.dirty.swap(false, Ordering::AcqRel) || vault.bind_group.is_null() { // && !vault.texture_arr.lock_mut().is_empty() {
         let sampler = graphics.device().create_sampler(&wgpu::SamplerDescriptor {
             label: Some("atlas_textures_sampler"),
             address_mode_u: wgpu::AddressMode::ClampToEdge,

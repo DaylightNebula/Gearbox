@@ -12,7 +12,7 @@ use image::{GenericImageView, ImageBuffer, Rgba};
 use magician_vgpu::{SinglePass, StaticTexture, Texture, VirtualGpu, glam::UVec2};
 use mutual::{CowData, DashMap, Ref, RefGuard, RelaxedMutex, SharedData};
 
-use crate::{Asset, AssetContent, AssetVault, BindableAssetVault, Handle, HandleInner, LoadableAssetVault};
+use crate::{Asset, AssetContent, AssetVault, BindableAssetVault, Handle, HandleInner, LoadableAssetVault, TextureHandle};
 
 /// Plugin that adds the [`BindlessArrayTextureVault`] asset vault resource to the
 /// app as well as the needed upkeep systems.
@@ -20,6 +20,7 @@ pub struct BindlessTexturesPlugin;
 impl Plugin for BindlessTexturesPlugin {
     fn build(self, app: App) -> App {
         app.add_resource(BindlessArrayTextureVault::default())
+            .on_render_startup(setup_blank_texture)
             .on_render_update(update_bindless_textures)
     }
 }
@@ -85,6 +86,7 @@ pub struct BindlessArrayTextureVaultInner {
     unloaded_textures: DashMap<u64, (Handle<BindlessArrayTextureAsset>, ImageBuffer<Rgba<u8>, Vec<u8>>, UVec2)>,
     pending_loads: DashMap<u64, Handle<BindlessArrayTextureAsset>>,
     bind_group: CowData<wgpu::BindGroup>,
+    empty_texture: CowData<Handle<BindlessArrayTextureAsset>>,
     dirty: AtomicBool
 }
 
@@ -102,6 +104,7 @@ impl Default for BindlessArrayTextureVaultInner {
             unloaded_textures: DashMap::default(),
             pending_loads: DashMap::default(),
             bind_group: CowData::null(),
+            empty_texture: CowData::null(),
             dirty: AtomicBool::new(false)
         }
     }
@@ -234,13 +237,32 @@ impl BindableAssetVault for BindlessArrayTextureVault {
         pass: &mut SinglePass, 
         bind_group: u32
     ) -> anyhow::Result<()> {
-        if self.texture_arr.lock_ref().len() < 1 { bail!("No loaded textures") }
+        // if self.texture_arr.lock_ref().len() < 1 { bail!("No loaded textures") }
         if self.bind_group.is_null() { bail!("Missing bind group for bindless textures") }
         pass.bind_raw(bind_group, &self.bind_group.get_ref());
         Ok(())
     }
 }
 
+impl BindlessArrayTextureVault {
+    pub fn empty_texture(&self) -> anyhow::Result<TextureHandle> {
+        if self.empty_texture.is_null() { bail!("No empty texture created yet") }
+        Ok(TextureHandle::Bindless(self.empty_texture.get_ref().clone()))
+    }
+}
+
+#[system(std::i32::MAX)]
+pub fn setup_blank_texture(
+    graphics: Res<Graphics>,
+    vault: Res<BindlessArrayTextureVault>
+) {
+    let handle = vault.load(
+        world, 
+        AssetContent::Binary(Box::new(*include_bytes!("../../1x1.bmp"))), 
+        TextureType::BMP
+    )?;
+    vault.empty_texture.set(handle);
+}
 
 #[system(std::i32::MIN)]
 pub fn update_bindless_textures(
@@ -281,7 +303,7 @@ pub fn update_bindless_textures(
     }
 
     // check if bind group needs rebuilding
-    if (vault.dirty.swap(false, Ordering::AcqRel) || vault.bind_group.is_null()) && !vault.texture_arr.lock_mut().is_empty() {
+    if vault.dirty.swap(false, Ordering::AcqRel) || vault.bind_group.is_null() { // && !vault.texture_arr.lock_mut().is_empty() {
         let binding = vault.texture_arr.lock_ref();
         let views = binding
             .iter()

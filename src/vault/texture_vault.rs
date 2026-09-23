@@ -52,4 +52,12 @@ impl TextureVault {
             Self::Atlas(vault) => vault.load(world, content, ty).map(TextureHandle::Atlas),
         }
     }
+
+    /// Handle to an empty 1x1 white texture.
+    pub fn empty_texture(&self) -> anyhow::Result<TextureHandle> {
+        match self {
+            Self::Bindless(vault) => vault.empty_texture(),
+            Self::Atlas(vault) => vault.empty_texture(),
+        }
+    }
 }
