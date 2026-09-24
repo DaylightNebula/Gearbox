@@ -13,7 +13,7 @@
 #![recursion_limit = "256"]
 
 use anarchy::{DeltaTime, FlexLocalId, Query, Res, ResMut, macros::{Resource, system}};
-use cell::{App, Frame, Graphics, Plugin, RENDER_SCHEDULE_ID, WindowDimensions};
+use cell::{App, Frame, Graphics, Plugin, RenderScheduleID, WindowDimensions};
 use derive_more::{Deref, DerefMut};
 use magician_vgpu::{LoadOp, PassAttachment, PassTarget, SinglePass, StoreOp, glam::Vec4};
 use mutual::SharedData;
@@ -91,6 +91,7 @@ pub fn begin_main_pass(
     camera: Query<&mut Camera>,
     schedule: Res<MainRenderPassSchedule>,
     delta_time: Res<DeltaTime>,
+    render_schedule: Res<RenderScheduleID>,
     window_dimensions: Res<WindowDimensions>,
     clear_color: Res<ClearColor>
 ) {
@@ -129,7 +130,7 @@ pub fn begin_main_pass(
     world.insert_resource(MainPassPassthrough(pass));
 
     // update delta time using primary render schedule delta time (effectively the same)
-    delta_time.set(FlexLocalId::Schedule(*schedule.schedule_id()), *delta_time.get(FlexLocalId::Schedule(RENDER_SCHEDULE_ID)).lock_ref());
+    delta_time.set(FlexLocalId::Schedule(*schedule.schedule_id()), *delta_time.get(FlexLocalId::Schedule(***render_schedule)).lock_ref());
 }
 
 /// Execute the main render pass schedules through `MainRenderPassSchedule`.
