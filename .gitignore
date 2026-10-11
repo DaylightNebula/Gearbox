@@ -5,3 +5,4 @@ shader_out/
 *.lock
 *.obj
 tests/web/node_modules/
+*-lock.json

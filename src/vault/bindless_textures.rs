@@ -262,8 +262,11 @@ impl BindlessArrayTextureVault {
 /// Loads the 1x1 white texture returned by `empty_texture`.
 pub fn setup_blank_texture(
     world: World,
+    graphics: Res<Graphics>,
     vault: Res<BindlessArrayTextureVault>
 ) {
+    // this vault is unused on GPUs without texture binding arrays (WebGL), see `TextureVault`
+    if !*graphics.supports_bindless_arrays() { return }
     let handle = vault.load(
         &world,
         AssetContent::Binary(Box::new(*include_bytes!("../../1x1.bmp"))),
@@ -279,6 +282,9 @@ pub fn update_bindless_textures(
     graphics: Res<Graphics>,
     vault: Res<BindlessArrayTextureVault>
 ) {
+    // building this vault's bind group needs texture binding arrays, which WebGL lacks
+    if !*graphics.supports_bindless_arrays() { return }
+
     // get all unloaded keys
     let unloaded_keys: Vec<u64> = vault.unloaded_textures.iter()
         .map(|a| *a.key())

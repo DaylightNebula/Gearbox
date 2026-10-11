@@ -1,7 +1,7 @@
 //! The [`App`] builder, which runs an [`anarchy`] ECS `World` inside a `winit`/`wgpu`
 //! application with a primary update graph and a render graph.
 
-use std::{any::TypeId, collections::HashSet, path::PathBuf, sync::{Arc, atomic::{AtomicBool, Ordering}}, time::Duration};
+use std::{any::TypeId, collections::HashSet, path::PathBuf, sync::{Arc, atomic::AtomicBool}, time::Duration};
 
 use anarchy::{IntoSystem, Res, Resource, SingleThreadedExecutor, SystemGraph, SystemInstruction, World};
 use derive_more::{Deref, DerefMut};
@@ -369,7 +369,7 @@ impl App {
                 Err(err) => break Err(err),
             }
         };
-        self.running.store(false, Ordering::Release);
+        self.running.store(false, std::sync::atomic::Ordering::Release);
         result
     }
 

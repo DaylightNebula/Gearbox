@@ -2,7 +2,7 @@
 # Checks gearbox on the web target. Needs rustup (Homebrew's Rust can't build for wasm32).
 #
 #   scripts/test-wasm.sh                 compile-check anarchy, magician-vgpu and gearbox for
-#                                        wasm32, then run tests/wasm.rs in Node
+#                                        wasm32, then run anarchy's and gearbox's tests/wasm.rs in Node
 #   scripts/test-wasm.sh --web [EXAMPLE] also build EXAMPLE (default: shapes) with Trunk and
 #                                        smoke-test it in headless Chromium, saving a
 #                                        screenshot to target/web-EXAMPLE.png
@@ -55,8 +55,8 @@ if $web; then
 fi
 $missing && exit 1
 
-echo "== compile: anarchy"
-(cd ../anarchy && cargo build --target "$TARGET")
+echo "== anarchy: compile all targets, run tests/wasm.rs in Node"
+(cd ../anarchy && cargo build --target "$TARGET" --all-targets && cargo test --target "$TARGET" --test wasm)
 echo "== compile: magician-vgpu"
 (cd ../shader_magician && cargo build -p magician-vgpu --target "$TARGET")
 echo "== compile: gearbox (lib and examples)"
