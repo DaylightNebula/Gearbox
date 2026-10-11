@@ -1,6 +1,5 @@
-use anarchy::{EntityBuilder, Query, World, WorldDatabase, anyhow};
-use anarchy::{Res, macros::system};
-use cell::{App, Graphics};
+use anarchy::{Query, Res, World};
+use cell::{App, Graphics, spawn};
 use gearbox::{AssetContent, TextureType, GearboxRenderPlugin, Handle, LazyAssetVault, Material, MaterialRef, MaterialVault, MeshRef, ShapeBuilder, SimpleTexturedMaterial, TextureVault, glam::*};
 use gearbox::{Camera, Transform};
 
@@ -12,63 +11,61 @@ fn main() -> anyhow::Result<()> {
         .run()
 }
 
-#[system]
 fn startup_triangle(
+    world: World,
     graphics: Res<Graphics>,
     materials: Res<MaterialVault>
 ) {
-    let vault = TextureVault::current(world, &graphics)?;
+    let vault = TextureVault::current(&world, &graphics).unwrap();
     let texture_handle = AssetContent::LocalPath("./examples/cobblestone.png".into());
-    let texture_handle = vault.load(world, texture_handle, TextureType::PNG)?;
-    let mat_handle = materials.allocate(1)?;
-    materials.store(world, mat_handle.clone(), Box::new(SimpleTexturedMaterial::new(texture_handle)));
+    let texture_handle = vault.load(&world, texture_handle, TextureType::PNG).unwrap();
+    let mat_handle = materials.allocate(1).unwrap();
+    materials.store(&world, mat_handle.clone(), Box::new(SimpleTexturedMaterial::new(texture_handle)));
 
-    world.insert(
-        EntityBuilder::default()
-            .add(Transform::new(Vec3::new(0.0, 0.0, 12.0), Quat::IDENTITY, Vec3::ONE))
-            .add(Camera::default())
-            .build()
-    );
+    spawn(&world, vec![
+        Box::new(Transform::new(Vec3::new(0.0, 0.0, 12.0), Quat::IDENTITY, Vec3::ONE)),
+        Box::new(Camera::default()),
+    ]);
 
     add_shape(
         &graphics,
-        world,
+        &world,
         ShapeBuilder::new().cube(Vec3::ZERO, Quat::IDENTITY, 1.0, 1.0, 1.0),
         Vec3::new(2.5, 0.0, 0.0),
         mat_handle.clone()
-    )?;
+    ).unwrap();
 
     add_shape(
         &graphics,
-        world,
+        &world,
         ShapeBuilder::new().sphere(Vec3::ZERO, Quat::IDENTITY, 1.0),
         Vec3::new(0.0, 0.0, 0.0),
         mat_handle.clone()
-    )?;
+    ).unwrap();
 
     add_shape(
         &graphics,
-        world,
+        &world,
         ShapeBuilder::new().capsule(Vec3::ZERO, Quat::IDENTITY, 0.5, 2.0),
         Vec3::new(-2.5, 0.0, 0.0),
         mat_handle.clone()
-    )?;
+    ).unwrap();
 
     add_shape(
         &graphics,
-        world,
+        &world,
         ShapeBuilder::new().cylinder(Vec3::ZERO, Quat::IDENTITY, 0.5, 2.0),
         Vec3::new(0.0, 2.5, 0.0),
         mat_handle.clone()
-    )?;
+    ).unwrap();
 
     add_shape(
         &graphics,
-        world,
+        &world,
         ShapeBuilder::new().cone(Vec3::ZERO, Quat::IDENTITY, 0.5, 2.0),
         Vec3::new(0.0, -2.5, 0.0),
         mat_handle
-    )?;
+    ).unwrap();
 }
 
 fn add_shape(
@@ -82,22 +79,19 @@ fn add_shape(
     let mesh = builder
         .build_mesh(&*graphics)?;
 
-    world.insert(
-        EntityBuilder::default()
-            .add(Transform::new(position, Quat::IDENTITY, Vec3::ONE))
-            .add(MaterialRef::new(mat_handle))
-            .add(MeshRef::new(mesh))
-            .build()
-    );
+    spawn(world, vec![
+        Box::new(Transform::new(position, Quat::IDENTITY, Vec3::ONE)),
+        Box::new(MaterialRef::new(mat_handle)),
+        Box::new(MeshRef::new(mesh)),
+    ]);
 
     Ok(())
 }
 
-#[system]
 fn update_triangle(
-    transforms: Query<(&mut Transform, &MeshRef)>
+    mut transforms: Query<(&'static mut Transform, &'static MeshRef)>
 ) {
-    for (mut transform, _mesh) in transforms.as_iter() {
+    while let Some((_id, (mut transform, _mesh))) = transforms.next().unwrap() {
         transform.rotate_by(Quat::from_euler(EulerRot::XYZ, 0.001, 0.001, 0.001));
     }
 }

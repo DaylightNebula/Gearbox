@@ -1,6 +1,6 @@
 use std::any::{Any, TypeId};
 
-use anarchy::{Entity, World, anyhow, macros::Component};
+use anarchy::{Component, EntityID, World};
 use derive_more::{Deref, DerefMut};
 use magician_vgpu::{PipelineBuilder, SinglePass, VirtualGpu};
 use mutual::AsAny;
@@ -12,7 +12,7 @@ pub use basic::*;
 /// Standard trait for any drawable mesh type. `id` identifies the concrete mesh type
 /// (shared by all instances of that type, used to key material/mesh pipelines), and
 /// `draw` binds the mesh's vertex/index/instance buffers and issues the draw call.
-pub trait Mesh: Any + AsAny {
+pub trait Mesh: Any + AsAny + Send {
     fn id(&self) -> TypeId { TypeId::of::<Self>() }
 
     fn create_pipeline<'a>(
@@ -26,7 +26,7 @@ pub trait Mesh: Any + AsAny {
         vgpu: &VirtualGpu,
         pass: &mut SinglePass,
         world: &World,
-        entity: &Entity
+        entity: EntityID
     ) -> anyhow::Result<()>;
 }
 
@@ -34,6 +34,12 @@ pub trait Mesh: Any + AsAny {
 /// an entity alongside a [`MaterialRef`](crate::MaterialRef) to make it renderable.
 #[derive(Deref, DerefMut, Component)]
 pub struct MeshRef(pub Box<dyn Mesh>);
+
+impl std::fmt::Debug for MeshRef {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("MeshRef").field(&self.0.id()).finish()
+    }
+}
 
 impl MeshRef {
     /// Wraps `mesh` in a `MeshRef` component.

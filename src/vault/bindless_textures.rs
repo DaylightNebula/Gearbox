@@ -4,9 +4,10 @@
 use std::{hash::{Hash, Hasher}, marker::PhantomData, sync::{Arc, atomic::{AtomicBool, Ordering}}};
 
 use ahash::AHasher;
-use anarchy::{Res, Scheduler, World, anyhow, macros::{Getters, Resource, system}};
-use anarchy::anyhow::bail;
-use cell::{App, Graphics, Plugin};
+use anarchy::{Res, Resource, SystemPin, World, pin};
+use anyhow::bail;
+use cell::{App, Graphics, Plugin, run_async};
+use getset::Getters;
 use derive_more::{Deref, DerefMut};
 use image::{GenericImageView, ImageBuffer, Rgba};
 use magician_vgpu::{SinglePass, StaticTexture, Texture, VirtualGpu, glam::UVec2};
@@ -20,13 +21,14 @@ pub struct BindlessTexturesPlugin;
 impl Plugin for BindlessTexturesPlugin {
     fn build(self, app: App) -> App {
         app.add_resource(BindlessArrayTextureVault::default())
-            .on_render_startup(setup_blank_texture)
-            .on_render_update(update_bindless_textures)
+            .on_render_startup_with(setup_blank_texture, pin(SystemPin::Start))
+            .on_render_update_with(update_bindless_textures, pin(SystemPin::Start))
     }
 }
 
 /// A single texture uploaded into a [`BindlessArrayTextureVault`]'s bindless array.
 #[derive(Getters)]
+#[getset(get = "pub")]
 pub struct BindlessArrayTextureAsset {
     texture: StaticTexture,
     texture_idx: usize
@@ -72,6 +74,12 @@ pub enum TextureType {
 /// [`AssetVault::load`].
 #[derive(Resource, Default, Clone, Deref, DerefMut)]
 pub struct BindlessArrayTextureVault(Arc<BindlessArrayTextureVaultInner>);
+
+impl std::fmt::Debug for BindlessArrayTextureVault {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BindlessArrayTextureVault").finish_non_exhaustive()
+    }
+}
 
 /// Shared state backing a [`BindlessArrayTextureVault`].
 ///
@@ -161,7 +169,7 @@ impl LoadableAssetVault for BindlessArrayTextureVault {
         // the actual bytes are fetched/decoded off-thread and moved into `unloaded_textures`
         // once ready, where `update_bindless_textures` picks them up to do the (sync) GPU upload
         let inner = Arc::clone(&self.0);
-        Scheduler::run_async(async move {
+        run_async(async move {
             let result = async {
                 let bytes = content.into_bytes().await?;
                 // formats like TGA have no magic-byte signature, so the format must be
@@ -251,20 +259,22 @@ impl BindlessArrayTextureVault {
     }
 }
 
-#[system(std::i32::MAX)]
+/// Loads the 1x1 white texture returned by `empty_texture`.
 pub fn setup_blank_texture(
-    graphics: Res<Graphics>,
+    world: World,
     vault: Res<BindlessArrayTextureVault>
 ) {
     let handle = vault.load(
-        world, 
-        AssetContent::Binary(Box::new(*include_bytes!("../../1x1.bmp"))), 
+        &world,
+        AssetContent::Binary(Box::new(*include_bytes!("../../1x1.bmp"))),
         TextureType::BMP
-    )?;
-    vault.empty_texture.set(handle);
+    );
+    match handle {
+        Ok(handle) => vault.empty_texture.set(handle),
+        Err(err) => log::error!("Failed to load blank texture: {err:#}"),
+    }
 }
 
-#[system(std::i32::MIN)]
 pub fn update_bindless_textures(
     graphics: Res<Graphics>,
     vault: Res<BindlessArrayTextureVault>

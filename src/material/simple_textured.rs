@@ -1,4 +1,5 @@
-use anarchy::{World, anyhow::{self, bail}, macros::AsAny};
+use anarchy::{AsAny, EntityID, World};
+use anyhow::bail;
 use magician_vgpu::{BindGroupProvider, BindableObject, MutableBuffer, Pipeline, PipelineBuilder, ShaderSource, ShaderType, SinglePass, VirtualGpu, rust::Vec4};
 use mutual::CowData;
 use wgpu::ShaderStages;
@@ -95,7 +96,7 @@ impl Material for SimpleTexturedMaterial {
         pass: &mut SinglePass,
         world: &World,
         camera: &Camera,
-        _entity: &anarchy::Entity
+        _entity: EntityID
     ) -> anyhow::Result<()> {
         // get camera bindable or fail
         let Some(bindable) = camera.bindable()
@@ -105,7 +106,7 @@ impl Material for SimpleTexturedMaterial {
         // own backend -- no separate "which backend is active" lookup needed
         match &self.texture {
             TextureHandle::Bindless(handle) => {
-                let Some(vault) = world.get_resource_ref::<BindlessArrayTextureVault>()
+                let Some(vault) = world.resource::<BindlessArrayTextureVault>().ok()
                     else { bail!("Missing BindlessArrayTextureVault") };
                 let Some(texture) = vault.get(handle)
                     else { bail!("SimpleTexturedMaterial internal handle not yet loaded") };
@@ -126,7 +127,7 @@ impl Material for SimpleTexturedMaterial {
                 vault.bind(vgpu, pass, 1)?;
             }
             TextureHandle::Atlas(handle) => {
-                let Some(vault) = world.get_resource_ref::<AtlasTextureVault>()
+                let Some(vault) = world.resource::<AtlasTextureVault>().ok()
                     else { bail!("Missing AtlasTextureVault") };
                 let Some(texture) = vault.get(handle)
                     else { bail!("SimpleTexturedMaterial internal handle not yet loaded") };

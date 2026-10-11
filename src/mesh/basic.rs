@@ -1,6 +1,8 @@
-use anarchy::{ComponentMeta, Entity, World, anyhow, extract_comps_distributed, macros::{AsAny, Getters}};
+use anarchy::{AsAny, EntityID, World, WorldImpl};
+use anyhow::Context;
+use getset::Getters;
 use magician_vgpu::{DrawSettings, ImmutableBuffer, MutableBuffer, Pipeline, PipelineBuilder, ShaderSource, ShaderType, SinglePass, VirtualGpu, WritableBuffer, glam::Mat4};
-use mutual::{CastableSharedData, CowData, RefCastGuard};
+use mutual::CowData;
 use wgpu::BufferUsages;
 
 use crate::{Mesh, Transform, shaders};
@@ -9,6 +11,7 @@ use crate::{Mesh, Transform, shaders};
 /// A basic mesh with a simple vertex determined by `shaders::common::VertexInput` 
 /// and a `Mat4` instance.
 #[derive(Getters, AsAny)]
+#[getset(get = "pub")]
 pub struct BasicMesh {
     pub vertex_buffer: ImmutableBuffer<[shaders::basic_vertex::VertexInput]>,
     pub index_buffer: ImmutableBuffer<[u32]>,
@@ -58,17 +61,12 @@ impl Mesh for BasicMesh {
         &self,
         vgpu: &VirtualGpu,
         pass: &mut SinglePass, 
-        _world: &World,
-        entity: &Entity
+        world: &World,
+        entity: EntityID
     ) -> anyhow::Result<()> {
-        // extract transform and mesh components
-        let (mut comps, _ctx) = extract_comps_distributed(
-            entity, 
-            &[Transform::bit_mask()], 
-            None
-        );
-        let transform: RefCastGuard<_, Transform> = comps.next().flatten()
-            .expect("BasicMaterial requires Transform companion component").lock_cast_ref();
+        // extract transform component
+        let transform = world.get::<&Transform>(entity)?
+            .context("BasicMesh requires a Transform companion component")?;
 
         // create instance matrix to draw
         let instances = [

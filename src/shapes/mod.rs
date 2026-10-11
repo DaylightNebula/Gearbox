@@ -8,7 +8,6 @@ pub mod cube;
 pub mod cylinder;
 pub mod sphere;
 
-use anarchy::anyhow;
 pub use capsule::*;
 pub use cone::*;
 pub use cube::*;

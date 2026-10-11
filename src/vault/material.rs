@@ -1,6 +1,7 @@
 use std::{any::TypeId, sync::Arc};
 
-use anarchy::{Entity, World, anyhow::{self, bail}, macros::Resource};
+use anarchy::{EntityID, Resource, World};
+use anyhow::bail;
 use derive_more::{Deref, DerefMut};
 use magician_vgpu::{PipelineBuilder, SinglePass, VirtualGpu};
 use mutual::{CowData, DashMap, RefCowData};
@@ -9,6 +10,12 @@ use crate::{Asset, AssetVault, Camera, Handle, LazyAssetVault, Material};
 
 #[derive(Resource, Deref, DerefMut, Default)]
 pub struct MaterialVault(Arc<MaterialVaultInner>);
+
+impl std::fmt::Debug for MaterialVault {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MaterialVault").finish_non_exhaustive()
+    }
+}
 
 #[derive(Default)]
 pub struct MaterialVaultInner {
@@ -41,13 +48,13 @@ impl LazyAssetVault for MaterialVault {
     type AllocTy = u64;
     type Store = Box<dyn Material>;
 
-    fn allocate(&self, alloc: Self::AllocTy) -> anarchy::anyhow::Result<Self::Lookup> {
+    fn allocate(&self, alloc: Self::AllocTy) -> anyhow::Result<Self::Lookup> {
         let handle = Handle::new((alloc, Arc::clone(&self.0), CowData::new(TypeId::of::<Self::Store>())));
         self.storage.insert(alloc, CowData::null());
         return Ok(handle);
     }
 
-    fn store(&self, _world: &anarchy::World, handle: Self::Lookup, store: Self::Store) {
+    fn store(&self, _world: &World, handle: Self::Lookup, store: Self::Store) {
         if let Some(cow) = self.storage.get(&handle.inner().0) {
             handle.inner().2.set(store.id());
             cow.set(store);
@@ -68,7 +75,7 @@ impl Material for Handle<Box<dyn Material>> {
         vgpu: &VirtualGpu,
         world: &World
     ) -> anyhow::Result<PipelineBuilder<'a>> {
-        let Some(material) = world.get_resource_ref::<MaterialVault>()
+        let Some(material) = world.resource::<MaterialVault>().ok()
             .and_then(|material| material.get(self))
             else { bail!("Failed to get material, either vault is missing or not loaded") };
         material.create_pipeline(vgpu, world)
@@ -80,9 +87,9 @@ impl Material for Handle<Box<dyn Material>> {
         pass: &mut SinglePass, 
         world: &World,
         camera: &Camera, 
-        entity: &Entity
+        entity: EntityID
     ) -> anyhow::Result<()> {
-        let Some(material) = world.get_resource_ref::<MaterialVault>()
+        let Some(material) = world.resource::<MaterialVault>().ok()
             .and_then(|material| material.get(self))
             else { bail!("Failed to get material, either vault is missing or not loaded") };
         material.prep_render_entity(vgpu, pass, world, camera, entity)

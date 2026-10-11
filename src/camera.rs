@@ -1,7 +1,8 @@
 use std::{any::TypeId, collections::hash_map::Entry};
 
 use ahash::AHashMap;
-use anarchy::{anyhow, macros::{Component, Getters, GettersMut, Setters}};
+use anarchy::Component;
+use getset::{Getters, MutGetters, Setters};
 use magician_vgpu::{BindableObject, Buffer, MutableBuffer, StaticTexture, VirtualGpu, WritableBuffer, glam::{Mat4, UVec2, Vec3}, rust};
 use wgpu::BufferUsages;
 
@@ -20,7 +21,9 @@ const OPENGL_TO_WGPU_MATRIX: Mat4 = Mat4::from_cols_array_2d(&[
 /// GPU-side view/projection buffer and any framebuffers are lazily created on the
 /// first internal update and stored in `buffers`. `gearbox`'s main render pass
 /// (see [`crate::update_cameras`]) uses the first camera found in the world each frame.
-#[derive(Component, Getters, GettersMut, Setters)]
+#[derive(Component, Getters, MutGetters, Setters)]
+#[getset(get = "pub", get_mut = "pub", set = "pub")]
+#[derive(Debug)]
 pub struct Camera {
     fovy_radians: f32,
     znear: f32,
@@ -35,6 +38,14 @@ pub struct CameraBuffers {
     buffer: MutableBuffer<[shaders::common::Camera]>,
     bindable: BindableObject<shaders::common::CameraInput>,
     framebuffers: AHashMap<FrameBufferKey, StaticTexture>
+}
+
+impl std::fmt::Debug for CameraBuffers {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CameraBuffers")
+            .field("framebuffers", &self.framebuffers.keys().collect::<Vec<_>>())
+            .finish_non_exhaustive()
+    }
 }
 
 /// A key identifying one of a [`Camera`]'s auxiliary framebuffers (e.g. depth), as

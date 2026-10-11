@@ -12,11 +12,10 @@
 #![allow(ambiguous_glob_reexports)]
 #![recursion_limit = "256"]
 
-use anarchy::{DeltaTime, FlexLocalId, Query, Res, ResMut, macros::{Resource, system}};
-use cell::{App, Frame, Graphics, Plugin, RenderScheduleID, WindowDimensions};
+use anarchy::{Query, Res, ResMut, Resource, SystemPin, World, after, pin};
+use cell::{App, Frame, Graphics, Plugin, WindowDimensions};
 use derive_more::{Deref, DerefMut};
 use magician_vgpu::{LoadOp, PassAttachment, PassTarget, SinglePass, StoreOp, glam::Vec4};
-use mutual::SharedData;
 
 pub mod camera;
 pub mod material;
@@ -48,10 +47,10 @@ impl Plugin for GearboxRenderPlugin {
             .add_resource(MaterialPipelineStorage::default())
             .add_resource(MaterialVault::default())
             .add_resource(ClearColor(Vec4::new(0.1, 0.2, 0.3, 1.0)))
-            .on_render_update(update_cameras)
+            .on_render_update_with(update_cameras, pin(SystemPin::Start))
             .on_render_update(begin_main_pass)
-            .on_render_update(execute_render_schedule)
-            .on_render_update(complete_main_pass)
+            .on_render_update_with(execute_render_schedule, after(begin_main_pass))
+            .on_render_update_with(complete_main_pass, after(execute_render_schedule))
     }
 }
 
@@ -63,49 +62,52 @@ impl Plugin for GearboxRenderPlugin {
 #[derive(Resource, Deref, DerefMut)]
 pub struct MainPassPassthrough(SinglePass);
 
+impl std::fmt::Debug for MainPassPassthrough {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MainPassPassthrough").finish_non_exhaustive()
+    }
+}
+
 /// The color the main render pass's color attachment is cleared to before drawing.
-/// Defaults to a dark blue-grey; mutate via `world.get_resource_mut::<ClearColor>()`.
-#[derive(Resource, Deref, DerefMut, Clone, Copy)]
+/// Defaults to a dark blue-grey; mutate via `world.resource_mut::<ClearColor>()`.
+#[derive(Debug, Resource, Deref, DerefMut, Clone, Copy)]
 pub struct ClearColor(pub Vec4);
 
 /// Used to update all cameras at the earlist possible moment in the render schedule.
 /// This provides up-to-date camera information to anyone using the cameras for rendering.
-#[system(std::i32::MIN)]
 pub fn update_cameras(
     graphics: Res<Graphics>,
-    camera: Query<(&Transform, &mut Camera)>
+    mut cameras: Query<(&'static Transform, &'static mut Camera)>
 ) {
-    for (transform, mut camera) in camera.as_iter() {
-        camera.update(&*graphics, &*transform)?;
+    while let Ok(Some((_, (transform, mut camera)))) = cameras.next() {
+        if let Err(err) = camera.update(&graphics, &transform) {
+            log::error!("Failed to update camera: {err:#}");
+        }
     }
 }
 
 /// Initializes the main render pass for rendering.  This schedule adds the `MainPassPassthrough` resource.
 /// The three phases of rendering (initialize, render, complete) are split into seperate passes to avoid
 /// lock conflicts with systems running in the `MainRenderPassSchedule`.
-#[system(0)]
 pub fn begin_main_pass(
+    world: World,
     graphics: Res<Graphics>,
-    frame: ResMut<Frame>,
-    pipelines: ResMut<MaterialPipelineStorage>,
-    camera: Query<&mut Camera>,
-    schedule: Res<MainRenderPassSchedule>,
-    delta_time: Res<DeltaTime>,
-    render_schedule: Res<RenderScheduleID>,
+    mut frame: ResMut<Frame>,
+    mut cameras: Query<&'static mut Camera>,
     window_dimensions: Res<WindowDimensions>,
     clear_color: Res<ClearColor>
 ) {
     // get primary (first) camera
-    let Some(mut camera) = camera.as_iter().next() else { return Ok(()) };
+    let Ok(Some((_, mut camera))) = cameras.next() else { return };
 
     // get depth buffer
     let depth_attachment = 
         camera.get_or_compute_framebuffer(
-            &*graphics, 
+            &graphics, 
             FrameBufferKey::Depth, 
             DEPTH_FORMAT, 
             wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
-            ***window_dimensions
+            **window_dimensions
         ).map(|depth_texture| {
             PassAttachment { 
                 target: PassTarget::Texture(depth_texture),
@@ -119,7 +121,7 @@ pub fn begin_main_pass(
         &[
             PassAttachment {
                 target: PassTarget::PassOutput,
-                load_op: LoadOp::Clear(***clear_color),
+                load_op: LoadOp::Clear(**clear_color),
                 store_op: StoreOp::Store
             }
         ], 
@@ -128,20 +130,17 @@ pub fn begin_main_pass(
 
     // add pass passthrough to finish rendering
     world.insert_resource(MainPassPassthrough(pass));
-
-    // update delta time using primary render schedule delta time (effectively the same)
-    delta_time.set(FlexLocalId::Schedule(*schedule.schedule_id()), *delta_time.get(FlexLocalId::Schedule(***render_schedule)).lock_ref());
 }
 
 /// Execute the main render pass schedules through `MainRenderPassSchedule`.
-#[system(1)]
-fn execute_render_schedule(schedule: Res<MainRenderPassSchedule>) {
-    if world.get_resource_ref::<MainPassPassthrough>().is_none() { return Ok(()) }
-    schedule.execute(world);
+fn execute_render_schedule(world: World, mut schedule: ResMut<MainRenderPassSchedule>) {
+    if !world.has_resource::<MainPassPassthrough>() { return }
+    if let Err(err) = schedule.execute(&world) {
+        log::error!("Main render pass system failed: {err:#}");
+    }
 }
 
 /// Complete the main render pass by removing and dropping the pass contained in `MainPassPassthrough`.
-#[system(2)]
-fn complete_main_pass() {
+fn complete_main_pass(world: World) {
     world.remove_resource::<MainPassPassthrough>();
 }

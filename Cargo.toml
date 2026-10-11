@@ -8,6 +8,9 @@ anarchy = { path = "../anarchy" }
 cell = { path = "../cell" }
 magician-vgpu = { path = "../shader_magician/magician-vgpu" }
 mutual = "1.0.2"
+anyhow = "1"
+getset = "0.1.7"
+log = "0.4"
 shaders = { path = "./shaders" }
 
 winit = { version = "0.30", features = ["android-native-activity"] }

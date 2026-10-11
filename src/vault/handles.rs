@@ -1,6 +1,6 @@
 use std::{fmt::Debug, marker::PhantomData, sync::Arc};
 
-use anarchy::macros::Getters;
+use getset::Getters;
 use derive_more::{Deref, DerefMut};
 
 use crate::Asset;
@@ -41,6 +41,7 @@ unsafe impl <T: Asset> Sync for Handle<T> {}
 /// The data tracked by a [`Handle`]: the vault-defined [`Asset::HandleTracker`] used
 /// to locate and unload the asset, plus a marker tying the handle to its asset type.
 #[derive(Getters)]
+#[getset(get = "pub")]
 pub struct HandleInner<T: Asset> {
     pub(crate) inner: T::HandleTracker,
     pub(crate) _phantom: PhantomData<T>

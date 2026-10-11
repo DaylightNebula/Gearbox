@@ -1,7 +1,8 @@
 use std::any::{Any, TypeId};
 
 use ahash::AHashMap;
-use anarchy::{Entity, World, anyhow::{self, bail}, macros::{Component, Resource}};
+use anarchy::{Component, EntityID, Resource, World};
+use anyhow::bail;
 use derive_more::{Deref, DerefMut};
 use magician_vgpu::{Pipeline, PipelineBuilder, SinglePass, VirtualGpu};
 use mutual::CowData;
@@ -20,11 +21,17 @@ pub struct MaterialPipelineStorage {
     pipelines: AHashMap<(TypeId, TypeId), CowData<Pipeline>>
 }
 
+impl std::fmt::Debug for MaterialPipelineStorage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MaterialPipelineStorage").field("pipelines", &self.pipelines.len()).finish()
+    }
+}
+
 /// Standard trait for any `Material` type. `id` identifies the concrete material type
 /// (shared by all instances of that type, used to key material/mesh pipelines in
 /// [`MaterialPipelineStorage`]), `create_pipeline` builds the render pipeline for
 /// this material, and `prep_render_entity` binds per-entity buffers before drawing.
-pub trait Material: Any {
+pub trait Material: Any + Send {
     fn id(&self) -> TypeId { TypeId::of::<Self>() }
 
     fn create_pipeline<'a>(
@@ -39,7 +46,7 @@ pub trait Material: Any {
         pass: &mut SinglePass, 
         world: &World,
         camera: &Camera, 
-        entity: &Entity
+        entity: EntityID
     ) -> anyhow::Result<()>;
 }
 
@@ -47,6 +54,12 @@ pub trait Material: Any {
 /// an entity alongside a [`MeshRef`](crate::MeshRef) to make it renderable.
 #[derive(Deref, DerefMut, Component)]
 pub struct MaterialRef(pub Box<dyn Material>);
+
+impl std::fmt::Debug for MaterialRef {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("MaterialRef").field(&self.0.id()).finish()
+    }
+}
 
 impl MaterialRef {
     /// Wraps `material` in a `MaterialRef` component.
@@ -88,7 +101,7 @@ impl Material for HotSwapMaterial {
         pass: &mut SinglePass, 
         world: &World,
         camera: &Camera, 
-        entity: &Entity
+        entity: EntityID
     ) -> anyhow::Result<()> {
         if self.is_null() { bail!("Unfilled hotswap material") }
         self.get_ref().prep_render_entity(vgpu, pass, world, camera, entity)

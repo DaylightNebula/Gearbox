@@ -1,4 +1,5 @@
-use anarchy::{World, anyhow, macros::{AsAny, Getters}};
+use anarchy::{AsAny, EntityID, World};
+use getset::Getters;
 use magician_vgpu::{BindGroupProvider, BindableObject, MutableBuffer, Pipeline, PipelineBuilder, ShaderSource, ShaderType, SinglePass, VirtualGpu, glam::Vec4};
 use mutual::CowData;
 use wgpu::{BufferUsages, ShaderStages};
@@ -8,6 +9,7 @@ use crate::{Camera, Material, shaders};
 /// A basic material that defines only a color to draw with the
 /// material with.
 #[derive(Clone, Getters, AsAny)]
+#[getset(get = "pub")]
 pub struct BasicMaterial {
     buffers: CowData<(BindableObject<shaders::basic_material::BasicMaterial>, BindableObject<shaders::common::EmptyBindable>)>,
     color: Vec4
@@ -44,7 +46,7 @@ impl Material for BasicMaterial {
         pass: &mut SinglePass, 
         _world: &World,
         camera: &Camera, 
-        _entity: &anarchy::Entity
+        _entity: EntityID
     ) -> anyhow::Result<()> {
         // get camera bindable or fail
         let Some(bindable) = camera.bindable()

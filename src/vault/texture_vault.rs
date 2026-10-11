@@ -1,15 +1,15 @@
 //! A thin facade unifying [`BindlessArrayTextureVault`] and [`AtlasTextureVault`] behind
 //! one API, so app code never needs to branch on which backend the current GPU supports.
 //!
-//! This is deliberately *not* a pre-selected `Resource`: `anarchy`'s render-startup
-//! schedule has no priority ordering (it's a LIFO stack -- the most recently registered
-//! startup system runs first), so a plugin-registered "pick the backend" system can never
-//! be guaranteed to run before an app's own `on_render_startup` system that needs the
-//! result. [`TextureVault::current`] sidesteps this by computing the answer fresh (a cheap
+//! This is deliberately *not* a pre-selected `Resource`: render-startup systems are only
+//! ordered by explicit `before`/`after` instructions, so a plugin-registered "pick the
+//! backend" system would only run before an app's own `on_render_startup` system that
+//! needs the result if every app remembered to order against it. [`TextureVault::current`] sidesteps this by computing the answer fresh (a cheap
 //! `Arc` clone) from `Graphics`, which -- unlike a plugin-populated resource -- is always
 //! already present by the time any render-startup system runs.
 
-use anarchy::{World, anyhow::{self, Context}};
+use anarchy::World;
+use anyhow::Context;
 use cell::Graphics;
 
 use crate::{AssetContent, AtlasTextureAsset, AtlasTextureVault, BindlessArrayTextureAsset, TextureType, BindlessArrayTextureVault, Handle, LoadableAssetVault};
@@ -38,9 +38,9 @@ impl TextureVault {
     /// the plugin wasn't added at all.
     pub fn current(world: &World, graphics: &Graphics) -> anyhow::Result<Self> {
         Ok(if *graphics.supports_bindless_arrays() {
-            Self::Bindless(world.get_resource_ref::<BindlessArrayTextureVault>().context("Missing BindlessArrayTextureVault")?.clone())
+            Self::Bindless(world.resource::<BindlessArrayTextureVault>().context("Missing BindlessArrayTextureVault")?.clone())
         } else {
-            Self::Atlas(world.get_resource_ref::<AtlasTextureVault>().context("Missing AtlasTextureVault")?.clone())
+            Self::Atlas(world.resource::<AtlasTextureVault>().context("Missing AtlasTextureVault")?.clone())
         })
     }
 

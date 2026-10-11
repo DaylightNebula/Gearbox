@@ -1,11 +1,13 @@
-use anarchy::macros::{Component, Getters, GettersMut, Setters};
+use anarchy::Component;
+use getset::{Getters, MutGetters, Setters};
 use magician_vgpu::glam::{Mat4, Quat, Vec3};
 
 /// A [`Component`](anarchy::Component) giving an entity a position, rotation, and scale in world space.
 ///
 /// Read by [`Camera`](crate::Camera) (view matrix) and mesh types like
 /// [`BasicMesh`](crate::BasicMesh) (instance matrix) each render frame.
-#[derive(Component, Copy, Clone, Debug, Getters, GettersMut, Setters)]
+#[derive(Component, Copy, Clone, Debug, Getters, MutGetters, Setters)]
+#[getset(get = "pub", get_mut = "pub", set = "pub")]
 pub struct Transform {
     pub translation: Vec3,
     pub rotation: Quat,

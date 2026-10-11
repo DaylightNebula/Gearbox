@@ -1,5 +1,5 @@
-use anarchy::{EntityBuilder, Query, Res, WorldDatabase, anyhow, macros::system};
-use cell::{App, Graphics};
+use anarchy::{Query, Res, World};
+use cell::{App, Graphics, spawn};
 use gearbox::{AssetContent, TextureType, Camera, GearboxRenderPlugin, LazyAssetVault, LoadableAssetVault, MaterialRef, MaterialVault, MeshAssetVault, MeshLoadType, MeshRef, SimpleTexturedMaterial, TextureVault, Transform};
 use magician_vgpu::glam::{self, Quat};
 
@@ -11,40 +11,35 @@ fn main() -> anyhow::Result<()> {
         .run()
 }
 
-#[system]
 fn setup(
+    world: World,
     graphics: Res<Graphics>,
     meshes: Res<MeshAssetVault>,
     materials: Res<MaterialVault>
 ) {
-    let mesh = meshes.load(world, AssetContent::LocalPath("./examples/SM_Prop_Bonsai_01.obj".into()), MeshLoadType::OBJ)?;
-    let vault = TextureVault::current(world, &graphics)?;
+    let mesh = meshes.load(&world, AssetContent::LocalPath("./examples/SM_Prop_Bonsai_01.obj".into()), MeshLoadType::OBJ).unwrap();
+    let vault = TextureVault::current(&world, &graphics).unwrap();
     let texture_handle = AssetContent::LocalPath("./examples/cobblestone.png".into());
-    let texture_handle = vault.load(world, texture_handle, TextureType::PNG)?;
-    let mat_handle = materials.allocate(1)?;
-    materials.store(world, mat_handle.clone(), Box::new(SimpleTexturedMaterial::new(texture_handle)));
+    let texture_handle = vault.load(&world, texture_handle, TextureType::PNG).unwrap();
+    let mat_handle = materials.allocate(1).unwrap();
+    materials.store(&world, mat_handle.clone(), Box::new(SimpleTexturedMaterial::new(texture_handle)));
 
-    world.insert(
-        EntityBuilder::default()
-            .add(Transform::identity())
-            .add(MaterialRef::new(mat_handle))
-            .add(MeshRef::new(mesh))
-            .build()
-    );
+    spawn(&world, vec![
+        Box::new(Transform::identity()),
+        Box::new(MaterialRef::new(mat_handle)),
+        Box::new(MeshRef::new(mesh)),
+    ]);
 
-    world.insert(
-        EntityBuilder::default()
-            .add(Transform::new(glam::Vec3::new(0.0, 0.0, 6.0), glam::Quat::IDENTITY, glam::Vec3::ONE))
-            .add(Camera::default())
-            .build()  
-    );
+    spawn(&world, vec![
+        Box::new(Transform::new(glam::Vec3::new(0.0, 0.0, 6.0), glam::Quat::IDENTITY, glam::Vec3::ONE)),
+        Box::new(Camera::default()),
+    ]);
 }
 
-#[system]
 fn update(
-    query: Query<(&MeshRef, &mut Transform)>
+    mut query: Query<(&'static MeshRef, &'static mut Transform)>
 ) {
-    for (_mesh, mut transform) in query.as_iter() {
+    while let Some((_id, (_mesh, mut transform))) = query.next().unwrap() {
         transform.rotate_by(Quat::from_euler(glam::EulerRot::XYZ, 0.01, 0.01, 0.01));
     }
 }

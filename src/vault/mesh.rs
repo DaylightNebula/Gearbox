@@ -1,10 +1,11 @@
 use std::{any::TypeId, hash::{Hash, Hasher}, io::{BufReader, Cursor}, sync::Arc};
 
 use ahash::AHasher;
-use anarchy::{Res, Scheduler, World, anyhow::{self, Context}, macros::{AsAny, Resource, system}};
-use cell::{App, Graphics, Plugin};
+use anarchy::{AsAny, EntityID, Res, Resource, SystemPin, World, pin};
+use anyhow::Context;
+use cell::{App, Graphics, Plugin, run_async};
 use derive_more::{Deref, DerefMut};
-use mutual::{AsAny, CowData, DashMap, RefCowData};
+use mutual::{CowData, DashMap, RefCowData};
 
 use crate::{Asset, AssetContent, AssetVault, BasicMesh, Handle, LoadableAssetVault, Mesh, ShapeMeshData, glam::{Vec2, Vec3}, shaders};
 
@@ -12,7 +13,7 @@ pub struct MeshAssetPlugin;
 impl Plugin for MeshAssetPlugin {
     fn build(self, app: App) -> App {
         app.add_resource(MeshAssetVault::default())
-            .on_render_update(finalize_mesh_loads)
+            .on_render_update_with(finalize_mesh_loads, pin(SystemPin::Start))
     }
 }
 
@@ -39,6 +40,12 @@ pub enum MeshLoadType {
 
 #[derive(Resource, Default, Deref, DerefMut)]
 pub struct MeshAssetVault(Arc<MeshAssetVaultInner>);
+
+impl std::fmt::Debug for MeshAssetVault {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MeshAssetVault").finish_non_exhaustive()
+    }
+}
 
 /// Shared state backing a [`MeshAssetVault`].
 ///
@@ -104,7 +111,7 @@ impl Mesh for Handle<MeshAsset> {
         vgpu: &magician_vgpu::VirtualGpu,
         world: &World
     ) -> anyhow::Result<magician_vgpu::PipelineBuilder<'a>> {
-        let vault = world.get_resource_ref::<MeshAssetVault>()
+        let vault = world.resource::<MeshAssetVault>()
             .context("Failed to find MeshAssetVault")?;
         let mesh = vault.get(&self)
             .context("Failed to get loaded MeshAsset")?;
@@ -116,9 +123,9 @@ impl Mesh for Handle<MeshAsset> {
         vgpu: &magician_vgpu::VirtualGpu,
         pass: &mut magician_vgpu::SinglePass,
         world: &World,
-        entity: &anarchy::Entity
+        entity: EntityID
     ) -> anyhow::Result<()> {
-        let vault = world.get_resource_ref::<MeshAssetVault>()
+        let vault = world.resource::<MeshAssetVault>()
             .context("Failed to find MeshAssetVault")?;
         let mesh = vault.get(&self)
             .context("Failed to get loaded MeshAsset")?;
@@ -130,7 +137,7 @@ impl LoadableAssetVault for MeshAssetVault {
     type LoadType = MeshLoadType;
     type LoadResult = Handle<MeshAsset>;
 
-    fn load(&self, _world: &World, content: AssetContent, ty: MeshLoadType) -> anarchy::anyhow::Result<Self::LoadResult> {
+    fn load(&self, _world: &World, content: AssetContent, ty: MeshLoadType) -> anyhow::Result<Self::LoadResult> {
         // compute content hash
         let mut hasher = AHasher::default();
         content.hash(&mut hasher);
@@ -156,7 +163,7 @@ impl LoadableAssetVault for MeshAssetVault {
         // moved into `unloaded_meshes` once ready; `finalize_mesh_loads` picks it up to
         // do the (render-thread-only) GPU buffer upload
         let inner = Arc::clone(&self.0);
-        Scheduler::run_async(async move {
+        run_async(async move {
             let result = async {
                 let bytes = content.into_bytes().await?;
                 match ty {
@@ -213,7 +220,6 @@ fn parse_obj(bytes: &[u8]) -> anyhow::Result<ShapeMeshData> {
 /// Uploads every mesh parsed by a background [`MeshAssetVault::load`] to the GPU, converting
 /// its [`ShapeMeshData`] intermediary into a real [`MeshAsset`]. Runs on the render schedule
 /// since GPU buffer creation must happen on the render thread.
-#[system(std::i32::MIN)]
 pub fn finalize_mesh_loads(
     graphics: Res<Graphics>,
     vault: Res<MeshAssetVault>

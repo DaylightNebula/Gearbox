@@ -7,8 +7,10 @@
 use std::{hash::{Hash, Hasher}, marker::PhantomData, sync::{Arc, atomic::{AtomicBool, Ordering}}};
 
 use ahash::AHasher;
-use anarchy::{Res, Scheduler, World, anyhow::{self, bail}, macros::{Getters, Resource, error, system}};
-use cell::{App, Graphics, Plugin};
+use anarchy::{Res, Resource, SystemPin, World, pin};
+use anyhow::bail;
+use cell::{App, Graphics, Plugin, run_async};
+use getset::Getters;
 use derive_more::{Deref, DerefMut};
 use image::{GenericImageView, ImageBuffer, Rgba};
 use magician_vgpu::{BindGroupProvider, Buffer, MutableBuffer, SinglePass, StaticTexture, Texture, VirtualGpu, WritableBuffer, glam::UVec2, rust::Vec4};
@@ -22,8 +24,8 @@ pub struct AtlasTexturesPlugin;
 impl Plugin for AtlasTexturesPlugin {
     fn build(self, app: App) -> App {
         app.add_resource(AtlasTextureVault::default())
-            .on_render_startup(setup_blank_texture)
-            .on_render_update(update_atlas_textures)
+            .on_render_startup_with(setup_blank_texture, pin(SystemPin::Start))
+            .on_render_update_with(update_atlas_textures, pin(SystemPin::Start))
     }
 }
 
@@ -84,6 +86,7 @@ impl ShelfPacker {
 
 /// A single texture placed into an [`AtlasTextureVault`]'s atlas page.
 #[derive(Getters, Clone, Copy)]
+#[getset(get = "pub")]
 pub struct AtlasTextureAsset {
     offset_px: UVec2,
     size_px: UVec2
@@ -107,6 +110,12 @@ impl Asset for AtlasTextureAsset {
 /// an ECS [`Resource`](anarchy::Resource) and load textures through it via [`AssetVault::load`].
 #[derive(Resource, Default, Clone, Deref, DerefMut)]
 pub struct AtlasTextureVault(Arc<AtlasTextureVaultInner>);
+
+impl std::fmt::Debug for AtlasTextureVault {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AtlasTextureVault").finish_non_exhaustive()
+    }
+}
 
 /// Shared state backing an [`AtlasTextureVault`].
 ///
@@ -206,7 +215,7 @@ impl LoadableAssetVault for AtlasTextureVault {
         // the actual bytes are fetched/decoded off-thread and moved into `unloaded_textures`
         // once ready, where `update_atlas_textures` picks them up to do the (sync) GPU upload
         let inner = Arc::clone(&self.0);
-        Scheduler::run_async(async move {
+        run_async(async move {
             let result = async {
                 let bytes = content.into_bytes().await?;
                 // formats like TGA have no magic-byte signature, so the format must be
@@ -235,7 +244,7 @@ impl LoadableAssetVault for AtlasTextureVault {
                 Ok((dimensions, rgba)) => {
                     inner.unloaded_textures.insert(hash, (staged_handle, rgba, dimensions.into()));
                 }
-                Err(err) => error!("Failed to load atlas texture: {err}"),
+                Err(err) => log::error!("Failed to load atlas texture: {err}"),
             }
         });
 
@@ -276,20 +285,22 @@ fn atlas_page_descriptor() -> magician_vgpu::TextureDescriptor {
     }
 }
 
-#[system(std::i32::MIN)]
+/// Loads the 1x1 white texture returned by `empty_texture`.
 pub fn setup_blank_texture(
-    graphics: Res<Graphics>,
+    world: World,
     vault: Res<AtlasTextureVault>
 ) {
     let handle = vault.load(
-        world, 
-        AssetContent::Binary(Box::new(*include_bytes!("../../1x1.bmp"))), 
+        &world,
+        AssetContent::Binary(Box::new(*include_bytes!("../../1x1.bmp"))),
         TextureType::BMP
-    )?;
-    vault.empty_texture.set(handle);
+    );
+    match handle {
+        Ok(handle) => vault.empty_texture.set(handle),
+        Err(err) => log::error!("Failed to load blank texture: {err:#}"),
+    }
 }
 
-#[system(std::i32::MIN)]
 pub fn update_atlas_textures(
     graphics: Res<Graphics>,
     vault: Res<AtlasTextureVault>
