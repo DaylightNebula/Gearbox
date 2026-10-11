@@ -1,0 +1,14 @@
+{
+  "name": "gearbox",
+  "description": "Skills for building with the gearbox renderer and app framework",
+  "owner": {
+    "name": "DaylightNebula"
+  },
+  "plugins": [
+    {
+      "name": "gearbox",
+      "source": "./plugins/gearbox",
+      "description": "Teaches Claude how to build apps with gearbox: the App, systems and plugins, events, egui, meshes, materials, textures and cameras"
+    }
+  ]
+}

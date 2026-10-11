@@ -168,6 +168,27 @@ impl Plugin for MyPlugin {
 Plugins are deduplicated by type: calling `add_plugin` twice with the same plugin type only
 builds it once.
 
+## AI assistant skills
+
+This repository is also a Claude Code plugin marketplace. Its `gearbox` plugin teaches
+Claude how to build apps with the crate, including its current limitations. To install it
+for a project that depends on gearbox (install the `anarchy` plugin too, for the ECS
+itself):
+
+```sh
+claude plugin marketplace add DaylightNebula/Gearbox
+claude plugin install gearbox@gearbox
+```
+
+| Skill | Covers |
+| --- | --- |
+| `gearbox:app` | Setup, the `App` and its graphs, systems and ordering, rates and delta time, entities, events, plugins, background work, egui and the web |
+| `gearbox:rendering` | `GearboxRenderPlugin`, cameras and transforms, meshes, materials, textures, drawing in the main pass and custom materials or meshes |
+
+The skills are plain Markdown in [`plugins/gearbox/skills/`](plugins/gearbox/skills), so
+other AI tools can read them too. Contributors working on the crate itself get a separate
+skill in `.claude/skills/gearbox`.
+
 ## Running the examples
 
 ```sh
