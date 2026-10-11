@@ -1,7 +1,7 @@
 //! The [`App`] builder, which runs an [`anarchy`] ECS `World` inside a `winit`/`wgpu`
 //! application with a primary update graph and a render graph.
 
-use std::{any::TypeId, collections::HashSet, sync::{Arc, atomic::AtomicBool}};
+use std::{any::TypeId, collections::HashSet, path::PathBuf, sync::{Arc, atomic::{AtomicBool, Ordering}}, time::Duration};
 
 use anarchy::{IntoSystem, Res, Resource, SingleThreadedExecutor, SystemGraph, SystemInstruction, World};
 use derive_more::{Deref, DerefMut};
@@ -10,10 +10,10 @@ use magician_vgpu::{RenderFrame, glam::UVec2};
 use web_time::Instant;
 use winit::event_loop::EventLoop;
 
-use crate::{EguiCtx, ErrorLog, Frame, Graphics, Pacer, Plugin, RenderDeltaTime, RenderRate, UpdateDeltaTime, UpdateRate};
+use crate::{DEFAULT_FIXED_TIMESTEP, DEFAULT_SCREENSHOT_FRAME, EguiCtx, EnvOptions, ErrorLog, Frame, FrameCount, Graphics, Pacer, Plugin, RenderDeltaTime, RenderRate, Screenshots, UpdateDeltaTime, UpdateRate, save_capture};
 
-/// Resource holding the current size of the app's window, in pixels. Kept in sync
-/// automatically whenever the window is resized.
+/// Resource holding the current size of the app's window (or headless render target), in
+/// pixels. Kept in sync automatically whenever the window is resized.
 #[derive(Debug, Deref, DerefMut, Resource)]
 pub struct WindowDimensions(UVec2);
 
@@ -26,6 +26,12 @@ pub struct WindowDimensions(UVec2);
 /// schedule; render startup waits until [`Graphics`] exists. Plugins, resources, and systems
 /// are attached via the builder methods below, then [`App::run`] hands control to the `winit`
 /// event loop.
+///
+/// For tests, CI and AI agents, an app can also run without a window ([`App::headless`]),
+/// stop after a set number of frames ([`App::with_frame_limit`]), step time by a fixed amount
+/// ([`App::with_fixed_timestep`]) and save frames as PNGs ([`App::with_screenshot`]). The
+/// `GEARBOX_HEADLESS`, `GEARBOX_FRAMES`, `GEARBOX_FIXED_TIMESTEP` and `GEARBOX_SCREENSHOT`
+/// environment variables turn these on for any app, see [`App::run`].
 pub struct App {
     /// Runs once before the first update pass.
     startup: SystemGraph,
@@ -41,11 +47,17 @@ pub struct App {
     render_errors: ErrorLog,
     /// Threads used to run the update graph natively.
     update_threads: usize,
-    /// Paces the update graph from `render` on web, where there are no threads to run it on.
-    #[cfg(target_arch = "wasm32")]
+    /// Paces the update graph when it runs from `render` (on web, which has no threads).
     update_pacer: Pacer,
-    #[cfg(target_arch = "wasm32")]
     update_errors: ErrorLog,
+    /// Render offscreen at this size, with no window.
+    headless: Option<UVec2>,
+    /// Stop after this many frames.
+    frame_limit: Option<u64>,
+    /// Run one update per frame, stepping both delta times by this much.
+    fixed_timestep: Option<Duration>,
+    /// Set once the frame limit has been rendered.
+    pub(crate) finished: bool,
     /// Cleared when the event loop exits, stopping the update thread.
     pub(crate) running: Arc<AtomicBool>,
     added_plugins: HashSet<TypeId>,
@@ -74,10 +86,12 @@ impl App {
             render_started: false,
             render_errors: ErrorLog::default(),
             update_threads: 4,
-            #[cfg(target_arch = "wasm32")]
             update_pacer: Pacer::default(),
-            #[cfg(target_arch = "wasm32")]
             update_errors: ErrorLog::default(),
+            headless: None,
+            frame_limit: None,
+            fixed_timestep: None,
+            finished: false,
             running: Arc::new(AtomicBool::new(true)),
             added_plugins: HashSet::new(),
             build_error: None,
@@ -90,7 +104,9 @@ impl App {
             .add_resource(UpdateRate(60))
             .add_resource(RenderRate(0))
             .add_resource(UpdateDeltaTime::default())
-            .add_resource(RenderDeltaTime::default());
+            .add_resource(RenderDeltaTime::default())
+            .add_resource(FrameCount(0))
+            .add_resource(Screenshots::default());
 
         #[cfg(feature = "auto-egui")]
         {
@@ -137,6 +153,39 @@ impl App {
     /// Enable or disable vsync, off by default.
     pub fn with_vsync(mut self, vsync: bool) -> Self {
         self.vsync = vsync;
+        return self;
+    }
+
+    /// Render into a `width` by `height` offscreen texture instead of opening a window. There
+    /// are no window or input events. Unless [`with_fixed_timestep`](Self::with_fixed_timestep)
+    /// sets another step, a headless app steps time by 1/60 s per frame. Not supported on web.
+    pub fn headless(mut self, width: u32, height: u32) -> Self {
+        self.headless = Some(UVec2::new(width.max(1), height.max(1)));
+        return self;
+    }
+
+    /// Exit once `frames` frames have been rendered.
+    pub fn with_frame_limit(mut self, frames: u64) -> Self {
+        self.frame_limit = Some(frames);
+        return self;
+    }
+
+    /// Run exactly one update pass per rendered frame, on the render thread, and set both
+    /// [`UpdateDeltaTime`] and [`RenderDeltaTime`] to `step`, so every run of the app sees
+    /// the same times. [`UpdateRate`] is ignored. Natively, each frame also waits for
+    /// background work started with [`run_async`](crate::run_async) (such as asset loads),
+    /// so assets arrive on the same frame every run.
+    pub fn with_fixed_timestep(mut self, step: Duration) -> Self {
+        self.fixed_timestep = Some(step);
+        return self;
+    }
+
+    /// Save frame `frame` (1 is the first frame) to `path` as a PNG. Systems can request
+    /// screenshots too, through the [`Screenshots`] resource.
+    pub fn with_screenshot(self, frame: u64, path: impl Into<PathBuf>) -> Self {
+        if let Ok(mut screenshots) = self.world.resource_mut::<Screenshots>() {
+            screenshots.capture_at(frame, path);
+        }
         return self;
     }
 
@@ -216,23 +265,48 @@ impl App {
 
     /// Start the primary schedule and hand control over to the `winit` event loop. This
     /// creates the window, drives resize/redraw events into the `App`, and blocks until the
-    /// event loop exits.
+    /// event loop exits, or the frame limit is reached. A headless app runs its own loop
+    /// instead.
+    ///
+    /// These environment variables override the builder settings, so any app can be run
+    /// headless or captured without code changes:
+    ///
+    /// | Variable | Effect |
+    /// | --- | --- |
+    /// | `GEARBOX_HEADLESS` | `WIDTHxHEIGHT` (or `1` for 800x600): run [`headless`](Self::headless) |
+    /// | `GEARBOX_FRAMES` | [`with_frame_limit`](Self::with_frame_limit) |
+    /// | `GEARBOX_FIXED_TIMESTEP` | seconds: [`with_fixed_timestep`](Self::with_fixed_timestep) |
+    /// | `GEARBOX_SCREENSHOT` | save the last frame to this path, with a 60 frame limit unless `GEARBOX_FRAMES` is set |
     ///
     /// # Errors
     ///
-    /// Returns the first error from appending a system (a cycle or a contradicting pin), or
-    /// an error from the event loop.
+    /// Returns the first error from appending a system (a cycle or a contradicting pin), an
+    /// invalid `GEARBOX_*` variable, a headless app's GPU failing to start or render, or an
+    /// error from the event loop.
     pub fn run(mut self) -> anyhow::Result<()> {
         if let Some(err) = self.build_error.take() { return Err(err) }
+        self.apply_env(EnvOptions::from_env()?);
+        if self.headless.is_some() && self.fixed_timestep.is_none() {
+            self.fixed_timestep = Some(DEFAULT_FIXED_TIMESTEP);
+        }
 
         #[cfg(not(target_arch = "wasm32"))]
         {
-            env_logger::init();
-            self.spawn_update_thread();
+            // `try_init`, as tests may run several apps in one process
+            let _ = env_logger::try_init();
+            if let Some(size) = self.headless {
+                return self.run_headless(size);
+            }
+            if !self.update_in_render() {
+                self.spawn_update_thread();
+            }
         }
         #[cfg(target_arch = "wasm32")]
         {
-            console_log::init_with_level(log::Level::Info).unwrap();
+            let _ = console_log::init_with_level(log::Level::Info);
+            if self.headless.is_some() {
+                anyhow::bail!("Headless apps aren't supported on the web");
+            }
         }
 
         let event_loop = EventLoop::with_user_event().build()?;
@@ -253,6 +327,50 @@ impl App {
         }
 
         Ok(())
+    }
+
+    /// Apply the `GEARBOX_*` environment variables over the builder settings.
+    fn apply_env(&mut self, env: EnvOptions) {
+        if let Some(size) = env.headless { self.headless = Some(size); }
+        if let Some(frames) = env.frames { self.frame_limit = Some(frames); }
+        if let Some(step) = env.fixed_timestep { self.fixed_timestep = Some(step); }
+        if let Some(path) = env.screenshot {
+            let frame = *self.frame_limit.get_or_insert(DEFAULT_SCREENSHOT_FRAME);
+            if let Ok(mut screenshots) = self.world.resource_mut::<Screenshots>() {
+                screenshots.capture_at(frame, path);
+            }
+        }
+    }
+
+    /// Whether the update graph runs from `render` rather than on its own thread: on web,
+    /// which has no threads, and with a fixed time step, so updates stay in step with frames.
+    fn update_in_render(&self) -> bool {
+        cfg!(target_arch = "wasm32") || self.fixed_timestep.is_some()
+    }
+
+    /// Render offscreen at `size` until the frame limit, with no window or event loop.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn run_headless(mut self, size: UVec2) -> anyhow::Result<()> {
+        let vgpu = pollster::block_on(magician_vgpu::VirtualGpu::new_headless(size.x, size.y))?;
+        self.world.insert_resource(Graphics(vgpu));
+        self.world.insert_resource(Frame::default());
+        configure_surface(&self.world, size.x, size.y);
+
+        let mut pacer = Pacer::default();
+        let result = loop {
+            let rate = self.world.resource::<RenderRate>().map(|rate| rate.0).unwrap_or(0);
+            if let Some(deadline) = pacer.too_early(rate) {
+                std::thread::sleep(deadline.saturating_duration_since(Instant::now()));
+                continue;
+            }
+            match self.render() {
+                Ok(_) if self.finished => break Ok(()),
+                Ok(_) => {}
+                Err(err) => break Err(err),
+            }
+        };
+        self.running.store(false, Ordering::Release);
+        result
     }
 
     /// Move the startup and update graphs onto a thread that runs startup once, then runs
@@ -289,19 +407,24 @@ impl App {
         });
     }
 
-    /// Run one update pass if one is due. Web has no threads, so the update graph is driven
-    /// from the render loop instead.
-    #[cfg(target_arch = "wasm32")]
+    /// Run one update pass from the render loop: every frame with a fixed time step,
+    /// otherwise whenever [`UpdateRate`] says one is due.
     fn tick_update(&mut self) {
-        let rate = self.world.resource::<UpdateRate>().map(|rate| rate.0).unwrap_or(0);
-        if self.update_pacer.too_early(rate).is_some() { return }
+        let delta = match self.fixed_timestep {
+            Some(step) => step.as_secs_f32(),
+            None => {
+                let rate = self.world.resource::<UpdateRate>().map(|rate| rate.0).unwrap_or(0);
+                if self.update_pacer.too_early(rate).is_some() { return }
+                self.update_pacer.start_pass()
+            }
+        };
 
         // startup is taken on the first pass, so it only runs once
         let startup = std::mem::take(&mut self.startup);
         let result = self.render_exec.run(&self.world, &startup);
         self.update_errors.report("Startup", result);
 
-        set_delta::<UpdateDeltaTime>(&self.world, self.update_pacer.start_pass());
+        set_delta::<UpdateDeltaTime>(&self.world, delta);
         let result = self.render_exec.run(&self.world, &self.update);
         self.update_errors.report("Update", result);
     }
@@ -316,8 +439,18 @@ impl App {
     /// [`Graphics`] doesn't exist yet or the surface can't be drawn to (e.g. the window is
     /// hidden), in which case nothing has requested the next redraw.
     pub(crate) fn render(&mut self) -> anyhow::Result<bool> {
-        #[cfg(target_arch = "wasm32")]
-        self.tick_update();
+        // with a fixed time step, background loads finish before the frame that can use
+        // them, so every run sees each asset arrive on the same frame
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.fixed_timestep.is_some() {
+            crate::wait_for_async_tasks();
+        }
+
+        // a fixed time step updates only on frames that render, so frame N always follows
+        // N updates; otherwise updates keep their own pace while frames can't render
+        if self.update_in_render() && self.fixed_timestep.is_none() {
+            self.tick_update();
+        }
 
         // get start time and vgpu
         let start = Instant::now();
@@ -330,12 +463,23 @@ impl App {
                 else { return Ok(false) };
             self.world.resource_mut::<Frame>()?.store(frame);
         }
+        let frame_number = {
+            let mut count = self.world.resource_mut::<FrameCount>()?;
+            count.0 += 1;
+            count.0
+        };
 
         // record delta time as the interval between frame starts, so it covers any time spent
         // waiting on the render rate cap or vsync and not just the work done this frame
         let previous = self.last_render.replace(start).unwrap_or(start);
-        let deltatime = start.duration_since(previous).as_secs_f32();
+        let deltatime = match self.fixed_timestep {
+            Some(step) => step.as_secs_f32(),
+            None => start.duration_since(previous).as_secs_f32(),
+        };
         set_delta::<RenderDeltaTime>(&self.world, deltatime);
+        if self.fixed_timestep.is_some() {
+            self.tick_update();
+        }
 
         if !self.render_started {
             self.render_started = true;
@@ -349,8 +493,25 @@ impl App {
             .take()
             .expect("Frame lost");
 
-        // finalize frame
-        frame.submit(&vgpu);
+        // finalize frame, capturing it if a screenshot is due
+        let due = self.world.resource_mut::<Screenshots>()?.take_due(frame_number);
+        if due.is_empty() {
+            frame.submit(&vgpu);
+        } else {
+            match frame.submit_and_capture(&vgpu) {
+                Ok(capture) => for path in due {
+                    match save_capture(&capture, &path) {
+                        Ok(()) => log::info!("Saved frame {frame_number} to {}", path.display()),
+                        Err(err) => log::error!("{err:#}"),
+                    }
+                },
+                Err(err) => log::error!("Failed to capture frame {frame_number}: {err:#}"),
+            }
+        }
+
+        if self.frame_limit.is_some_and(|limit| frame_number >= limit) {
+            self.finished = true;
+        }
         Ok(true)
     }
 }
@@ -361,9 +522,7 @@ pub(crate) fn configure_surface(world: &World, width: u32, height: u32) {
     if width == 0 || height == 0 { return }
     let Ok(mut vgpu) = world.resource_mut::<Graphics>() else { return };
 
-    vgpu.config_mut().width = width;
-    vgpu.config_mut().height = height;
-    vgpu.surface().configure(vgpu.device(), vgpu.config());
+    vgpu.resize(width, height);
     drop(vgpu);
     if let Ok(mut dimensions) = world.resource_mut::<WindowDimensions>() {
         dimensions.0 = UVec2::new(width, height);

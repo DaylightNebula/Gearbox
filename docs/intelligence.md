@@ -16,6 +16,9 @@ in it confidently, roughly in order of value.
 
 The highest priority. Without this, every visual change is a guess.
 
+*Done:* headless mode, screenshots and frame limits with a fixed time step are in. See
+"Headless runs, screenshots and frame limits" in the README.
+
 - **Headless mode.** Run an `App` with no window, rendering into an offscreen texture,
   enabled by something like `App::headless(width, height)` or an environment variable.
   This works in CI, over SSH and in sandboxed agent sessions.
@@ -86,7 +89,7 @@ The highest priority. Without this, every visual change is a guess.
 
 ## Suggested order
 
-1. Headless mode, screenshots and exiting after N frames.
+1. ~~Headless mode, screenshots and exiting after N frames.~~ Done.
 2. The smoke-test script.
 3. `CLAUDE.md` and `gearbox::prelude` (the skills are done).
 4. Diagnostics: frame stats, world dump and better error messages.

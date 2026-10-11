@@ -168,6 +168,51 @@ impl Plugin for MyPlugin {
 Plugins are deduplicated by type: calling `add_plugin` twice with the same plugin type only
 builds it once.
 
+## Headless runs, screenshots and frame limits
+
+Any app can run without a window, stop after a set number of frames, and save frames as
+PNGs. This is meant for tests, CI and AI agents that need to see what was drawn.
+
+```rust
+App::new()
+    .headless(640, 480)                       // render offscreen, no window
+    .with_frame_limit(60)                     // exit after 60 frames
+    .with_fixed_timestep(Duration::from_secs_f64(1.0 / 60.0))
+    .with_screenshot(60, "out/frame60.png")   // save frame 60
+    .add_plugin(GearboxRenderPlugin)
+    .run()
+```
+
+- **Fixed time step.** With `with_fixed_timestep`, the app runs one update pass per frame
+  and sets both delta times to the step. It also waits for background asset loads before
+  each frame, so every run produces the same frames. Headless apps use a 1/60 s step
+  unless you set one.
+- **Screenshots from systems.** A system can request a screenshot through the
+  `Screenshots` resource (`capture(path)` or `capture_at(frame, path)`). `FrameCount` holds
+  the current frame number.
+- **No code changes needed.** These environment variables turn the same features on for
+  any app, including the examples:
+
+| Variable | Effect |
+| --- | --- |
+| `GEARBOX_HEADLESS` | `WIDTHxHEIGHT`, or `1` for 800x600: render offscreen with no window |
+| `GEARBOX_FRAMES` | exit after this many frames |
+| `GEARBOX_FIXED_TIMESTEP` | fixed time step, in seconds |
+| `GEARBOX_SCREENSHOT` | save the last frame to this path (with a 60 frame limit unless `GEARBOX_FRAMES` is set) |
+
+```sh
+GEARBOX_HEADLESS=640x480 GEARBOX_SCREENSHOT=shapes.png cargo run --example shapes
+```
+
+## Testing the web build
+
+`scripts/test-wasm.sh` compile-checks anarchy, magician-vgpu and gearbox for `wasm32` and
+runs `tests/wasm.rs` in Node. `scripts/test-wasm.sh --web shapes` also builds the `shapes`
+example with Trunk, loads it in headless Chromium, fails on panics, errors or a blank
+canvas, and saves a screenshot to `target/web-shapes.png`. The script lists anything it
+needs that isn't installed (rustup with the `wasm32-unknown-unknown` target,
+`wasm-bindgen-cli`, Trunk, and Playwright via `npm install` in `tests/web`).
+
 ## AI assistant skills
 
 This repository is also a Claude Code plugin marketplace. Its `gearbox` plugin teaches

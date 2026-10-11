@@ -23,7 +23,8 @@ impl Plugin for EguiPlugin {
 #[derive(Resource)]
 pub struct EguiCtx {
     pub context: egui::Context,
-    pub state: egui_winit::State,
+    /// The `winit` integration, `None` in a headless app, which has no window or input.
+    pub state: Option<egui_winit::State>,
     pub renderer: egui_wgpu::Renderer
 }
 
@@ -39,13 +40,13 @@ fn setup_egui(
 ) {
     // setup egui context, state, and renderer
     let context = egui::Context::default();
-    let state = egui_winit::State::new(
+    let state = graphics.window().map(|window| egui_winit::State::new(
         context.clone(), 
         egui::ViewportId::ROOT, 
-        graphics.window(), 
-        Some(graphics.window().scale_factor() as f32), 
+        window, 
+        Some(window.scale_factor() as f32), 
         None, None
-    );
+    ));
     let renderer = egui_wgpu::Renderer::new(
         graphics.device(),
         graphics.config().format,
@@ -63,11 +64,23 @@ fn start_egui_frame(
     mut ctx: ResMut<EguiCtx>,
     window_events: Event<WindowEvent>
 ) {
-    for event in window_events.read() {
-        let _ = ctx.state.on_window_event(graphics.window(), &event);
-    }
-    
-    let raw_input = ctx.state.take_egui_input(graphics.window());
+    let ctx = &mut *ctx;
+    let raw_input = match (&mut ctx.state, graphics.window()) {
+        (Some(state), Some(window)) => {
+            for event in window_events.read() {
+                let _ = state.on_window_event(window, &event);
+            }
+            state.take_egui_input(window)
+        }
+        // headless: no input, just the size of the render target
+        _ => egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(graphics.config().width as f32, graphics.config().height as f32)
+            )),
+            ..Default::default()
+        },
+    };
     ctx.context.begin_pass(raw_input);
 }
 
@@ -79,11 +92,13 @@ fn end_egui_frame(
 ) {
     let ctx = &mut *ctx;
     let full_output = ctx.context.end_pass();
-    ctx.state.handle_platform_output(graphics.window(), full_output.platform_output);
+    if let (Some(state), Some(window)) = (&mut ctx.state, graphics.window()) {
+        state.handle_platform_output(window, full_output.platform_output);
+    }
 
     let screen_descriptor = egui_wgpu::ScreenDescriptor {
-        size_in_pixels: [graphics.window().inner_size().width, graphics.window().inner_size().height],
-        pixels_per_point: graphics.window().scale_factor() as f32,
+        size_in_pixels: [graphics.config().width, graphics.config().height],
+        pixels_per_point: graphics.window().map_or(1.0, |window| window.scale_factor() as f32),
     };
 
     let primitives = ctx.context.tessellate(

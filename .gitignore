@@ -4,3 +4,4 @@ shader_out/
 /dist
 *.lock
 *.obj
+tests/web/node_modules/

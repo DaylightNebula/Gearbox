@@ -34,7 +34,7 @@ impl AppWrapper {
     /// Request a redraw, if the window exists yet.
     fn request_redraw(&self) {
         if let Ok(graphics) = self.app.world.resource::<crate::Graphics>() {
-            graphics.window().request_redraw();
+            graphics.request_redraw();
         }
     }
 
@@ -157,6 +157,7 @@ impl ApplicationHandler<()> for AppWrapper {
                     return;
                 }
                 match self.app.render() {
+                    Ok(true) if self.app.finished => event_loop.exit(),
                     Ok(true) => {}
                     Ok(false) => self.retry_skipped_frame(event_loop),
                     Err(err) => {

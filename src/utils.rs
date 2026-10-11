@@ -35,13 +35,58 @@ pub fn spawn(world: &World, components: Vec<DynComponent>) -> EntityID {
     id
 }
 
+/// The number of `run_async` futures that haven't finished, and a signal for when it changes.
+#[cfg(not(target_arch = "wasm32"))]
+static IN_FLIGHT: (std::sync::Mutex<usize>, std::sync::Condvar) = (std::sync::Mutex::new(0), std::sync::Condvar::new());
+
+/// Counts one `run_async` future as in flight until dropped, even if the future panics.
+#[cfg(not(target_arch = "wasm32"))]
+struct InFlight;
+
+#[cfg(not(target_arch = "wasm32"))]
+impl InFlight {
+    fn start() -> Self {
+        *IN_FLIGHT.0.lock().unwrap_or_else(|err| err.into_inner()) += 1;
+        Self
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl Drop for InFlight {
+    fn drop(&mut self) {
+        *IN_FLIGHT.0.lock().unwrap_or_else(|err| err.into_inner()) -= 1;
+        IN_FLIGHT.1.notify_all();
+    }
+}
+
 /// Runs `future` in the background: on a new thread natively, or on the browser's event loop on
 /// web. Use it for asset loading and other work that shouldn't block a schedule.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn run_async<F>(future: F)
     where F: Future<Output = ()> + Send + 'static
 {
-    std::thread::spawn(move || pollster::block_on(future));
+    let in_flight = InFlight::start();
+    std::thread::spawn(move || {
+        let _in_flight = in_flight;
+        pollster::block_on(future)
+    });
+}
+
+/// The number of [`run_async`] futures that haven't finished yet, across every app.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn async_tasks_in_flight() -> usize {
+    *IN_FLIGHT.0.lock().unwrap_or_else(|err| err.into_inner())
+}
+
+/// Blocks until every [`run_async`] future has finished, such as background asset loads. An
+/// app with a fixed time step calls this before each frame, so assets always arrive on the
+/// same frame.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn wait_for_async_tasks() {
+    let mut in_flight = IN_FLIGHT.0.lock().unwrap_or_else(|err| err.into_inner());
+    while *in_flight > 0 {
+        in_flight = IN_FLIGHT.1.wait(in_flight).unwrap_or_else(|err| err.into_inner());
+    }
 }
 
 /// Runs `future` in the background: on a new thread natively, or on the browser's event loop on

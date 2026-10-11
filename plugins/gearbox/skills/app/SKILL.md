@@ -138,7 +138,54 @@ App::new()
 | `UpdateDeltaTime(f32)` / `RenderDeltaTime(f32)` | seconds between the starts of the last two passes / frames |
 | `WindowDimensions` | window size in pixels, derefs to `UVec2` |
 
-`with_vsync(true)` turns vsync on (off by default).
+`with_vsync(true)` turns vsync on (off by default). `FrameCount(u64)` holds the number of
+the frame being rendered (1 during the first frame).
+
+## Headless runs, screenshots and frame limits
+
+Use these to see what an app draws, in tests and in sessions without a display:
+
+```rust
+use std::time::Duration;
+
+App::new()
+    .headless(640, 480)                       // offscreen, no window or input events
+    .with_frame_limit(60)                     // run returns after frame 60
+    .with_fixed_timestep(Duration::from_millis(16))
+    .with_screenshot(60, "out/frame60.png")   // saved as PNG when frame 60 is submitted
+    .add_plugin(GearboxRenderPlugin)
+    .run()
+```
+
+- **Fixed time step.** `with_fixed_timestep(step)` runs one update pass per frame, on the
+  render thread, with both delta times equal to `step`. It ignores `UpdateRate`.
+  - Before each frame, it waits for all `run_async` work (asset loads) to finish, so assets
+    arrive on the same frame every run. A texture requested in frame 1's render startup
+    draws in frame 2.
+  - Headless apps default to a 1/60 s step.
+- **Screenshots from systems.** Take `ResMut<Screenshots>` and call `capture(path)` (the
+  frame being drawn, when called from a render system) or `capture_at(frame, path)`.
+- **Checking pixels.** Open a saved PNG with `image::open(path)?.to_rgba8()` and check
+  pixels. The headless target is sRGB, so a `ClearColor(Vec4::new(1.0, 0.0, 0.0, 1.0))`
+  reads back as `[255, 0, 0, 255]`.
+- **Environment variables.** These override the builder for any app, with no code
+  changes. Prefer them for running existing examples or apps:
+
+  | Variable | Effect |
+  | --- | --- |
+  | `GEARBOX_HEADLESS` | `WIDTHxHEIGHT`, or `1` for 800x600 |
+  | `GEARBOX_FRAMES` | frame limit |
+  | `GEARBOX_FIXED_TIMESTEP` | step in seconds |
+  | `GEARBOX_SCREENSHOT` | save the last frame here (implies a 60 frame limit if `GEARBOX_FRAMES` isn't set) |
+
+  ```sh
+  GEARBOX_HEADLESS=640x480 GEARBOX_SCREENSHOT=out.png cargo run --example shapes
+  ```
+
+- **egui works headless** (`EguiCtx::state` is `None`, as there's no window or input).
+- **A test can skip without a GPU.** `run` returns an error mentioning "No GPU adapter"
+  when there's no GPU, so a test can check for that and return.
+- Headless mode isn't supported on the web.
 
 ## Entities
 
