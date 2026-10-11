@@ -60,7 +60,7 @@ impl AssetContent {
     ///
     /// `Binary`/`Content` resolve immediately with the data they already hold;
     /// `LocalPath`/`Url` perform blocking file/network I/O. Callers should drive
-    /// this future off the calling thread (e.g. [`cell::run_async`])
+    /// this future off the calling thread (e.g. [`crate::run_async`])
     /// since the I/O variants block whichever thread polls them.
     pub async fn into_bytes(self) -> anyhow::Result<Box<[u8]>> {
         Ok(match self {

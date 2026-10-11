@@ -3,9 +3,12 @@ name = "gearbox"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+auto-egui = []
+dbg-schedules = ["auto-egui"]
+
 [dependencies]
 anarchy = { path = "../anarchy" }
-cell = { path = "../cell" }
 magician-vgpu = { path = "../shader_magician/magician-vgpu" }
 mutual = "1.0.2"
 anyhow = "1"
@@ -14,26 +17,34 @@ log = "0.4"
 shaders = { path = "./shaders" }
 
 winit = { version = "0.30", features = ["android-native-activity"] }
-wgpu = "29.0"
-bytemuck = "1.25.0"
 ahash = { version = "0.8.12", default-features = false, features = ["std", "compile-time-rng"] }
 derive_more = "2.1.1"
 tobj = "3.2"
+web-time = "1.1.0"
+
+egui = "0.34"
+egui-wgpu = "0.34"
+egui-winit = { version = "0.34", default-features = false }
 
 [dependencies.image]
 version = "0.24"
 default-features = false
 features = ["png", "jpeg", "tga", "bmp", "dds", "farbfeld", "hdr", "ico", "openexr", "pnm", "qoi", "tiff", "webp"]
 
-[dev-dependencies]
-pollster = "1.0.1"
-
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+egui-winit = { version = "0.34", default-features = false, features = ["clipboard", "links", "wayland", "x11"] }
+wgpu = "29.0"
+env_logger = "0.11"
+pollster = "1.0.1"
 ureq = "3.3.0"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+egui-winit = { version = "0.34", default-features = false, features = ["links"] }
+wgpu = { version = "29.0", features = ["webgl"] }
+console_error_panic_hook = "0.1.6"
+console_log = "1.0"
 getrandom = { version = "0.3", features = ["wasm_js"] }
-web-sys = { version = "0.3.103", features = ["Window", "Location", "Request", "RequestInit", "RequestMode", "Response"] }
+web-sys = { version = "0.3.103", features = ["Document", "Element", "Window", "Location", "Request", "RequestInit", "RequestMode", "Response"] }
 js-sys = "0.3.103"
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"

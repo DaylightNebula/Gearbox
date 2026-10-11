@@ -1,7 +1,11 @@
-//! `gearbox` is an ECS-based renderer built on [`anarchy`] (ECS) and [`cell`] (app/windowing),
+//! `gearbox` is an ECS-based renderer built on [`anarchy`] (ECS) and [`winit`] (windowing),
 //! using [`magician_vgpu`] for its GPU abstraction over `wgpu`.
 //!
-//! Register [`GearboxRenderPlugin`] with a `cell` [`App`] to get a main render pass that draws
+//! An [`App`] runs an `anarchy` `World` inside a `winit` window, with a primary update graph
+//! ticked at a fixed rate and a render graph run once per frame. Functionality is added to an
+//! `App` through [`Plugin`]s, and [`EguiPlugin`] sets up `egui` for debug UI.
+//!
+//! Register [`GearboxRenderPlugin`] with an [`App`] to get a main render pass that draws
 //! every entity carrying a [`Transform`], [`MaterialRef`], and [`MeshRef`], as seen through the
 //! first entity found with a [`Camera`] component. [`shapes`] provides a [`ShapeBuilder`] for
 //! generating primitive meshes, and [`vault`] provides a generic, not-yet-integrated
@@ -13,26 +17,40 @@
 #![recursion_limit = "256"]
 
 use anarchy::{Query, Res, ResMut, Resource, SystemPin, World, after, pin};
-use cell::{App, Frame, Graphics, Plugin, WindowDimensions};
 use derive_more::{Deref, DerefMut};
 use magician_vgpu::{LoadOp, PassAttachment, PassTarget, SinglePass, StoreOp, glam::Vec4};
 
+pub mod app;
 pub mod camera;
+pub mod egui;
+pub mod gpu;
 pub mod material;
 pub mod mesh;
+pub mod plugin;
 pub mod schedule;
 pub mod shapes;
 pub mod transform;
+pub mod utils;
 pub mod vault;
+pub(crate) mod wrapper;
 
+pub use app::*;
 pub use camera::*;
+pub use egui::*;
+pub use gpu::*;
 pub use material::*;
 pub use mesh::*;
+pub use plugin::*;
 pub use schedule::*;
 pub use shapes::*;
 pub use transform::*;
+pub use utils::*;
 pub use vault::*;
 
+// re-exported so apps only need `gearbox` to use the ECS, GPU and error types it exposes
+pub use anarchy;
+pub use anyhow;
+pub use magician_vgpu;
 pub use shaders as shaders;
 pub use magician_vgpu::glam as glam;
 

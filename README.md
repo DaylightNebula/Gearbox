@@ -1,7 +1,7 @@
 # Gearbox
 
-A simple ECS based renderer for `Cell` and `Anarchy`, built on top of `wgpu` via
-`magician-vgpu`.
+A simple ECS based renderer and app framework for `Anarchy`, built on top of `winit` and
+`wgpu` via `magician-vgpu`. It includes what used to be the separate `Cell` crate.
 
 > **Status: work in progress.** This project is early and little of the API is
 > set in stone. Expect breaking changes.
@@ -9,7 +9,13 @@ A simple ECS based renderer for `Cell` and `Anarchy`, built on top of `wgpu` via
 ## What it does
 
 `gearbox` provides:
-- `GearboxRenderPlugin` — a `cell::App` plugin that adds a main render pass and
+- `App` — a builder that owns an `anarchy` `World` and the `winit` window/event loop. It
+  runs a primary update graph at a fixed tick rate (`UpdateRate`), independent of rendering
+  and on its own threads natively, and a render graph once per frame. Window and device
+  events are sent into the ECS as `WindowEvent` and `DeviceEvent`, `UpdateDeltaTime` and
+  `RenderDeltaTime` are kept up to date, and `spawn` hands out entity ids.
+- `Plugin`s for packaging and sharing functionality, and `EguiPlugin` for `egui` debug UI.
+- `GearboxRenderPlugin` — an `App` plugin that adds a main render pass and
   draws every entity carrying a `Transform`, `MaterialRef`, and `MeshRef`,
   as seen through the first entity found with a `Camera` component.
 - `Transform` / `Camera` components.
@@ -20,23 +26,33 @@ A simple ECS based renderer for `Cell` and `Anarchy`, built on top of `wgpu` via
 - `vault` — a generic, not-yet-integrated asset-loading system for
   reference-counted GPU resources such as textures.
 
-This crate is part of a small workspace of sibling crates (`anarchy`, `cell`,
-`mutual`, `shader_magician/magician-vgpu`) referenced by relative path in
-`Cargo.toml`, so it is not currently usable as a standalone dependency outside
-that workspace layout.
+This crate is part of a small workspace of sibling crates (`anarchy`,
+`shader_magician/magician-vgpu`) referenced by relative path in `Cargo.toml`, so it is
+not currently usable as a standalone dependency outside that workspace layout.
+
+`gearbox` re-exports `anarchy`, `anyhow`, `magician_vgpu`, `glam` and `shaders`, so an app
+only needs `gearbox` itself. The exception is `#[derive(Component)]` and
+`#[derive(Resource)]`: their generated code names `::anarchy`, so an app that uses them
+must also depend on `anarchy` directly.
+
+## Features
+
+| Feature | Enables |
+|---|---|
+| `auto-egui` | Automatically adds `EguiPlugin` when `App::new()` is called. |
+| `dbg-schedules` | Implies `auto-egui`. Adds an egui window showing the update and render FPS. |
 
 ## Usage
 
 ### A rotating triangle
 
 ```rust
-use anarchy::{Query, Res, World};
-use cell::{App, Graphics, spawn};
-use gearbox::{BasicMaterial, BasicMesh, Camera, GearboxRenderPlugin, MaterialRef, MeshRef, Transform};
-use magician_vgpu::{glam::{self, Quat}, rust::{Vec2, Vec3}};
-use shaders::basic_vertex;
+use gearbox::anarchy::{Query, Res, World};
+use gearbox::{App, BasicMaterial, BasicMesh, Camera, GearboxRenderPlugin, Graphics, MaterialRef, MeshRef, Transform, spawn};
+use gearbox::magician_vgpu::{glam::{self, Quat}, rust::{Vec2, Vec3}};
+use gearbox::shaders::basic_vertex;
 
-fn main() -> anyhow::Result<()> {
+fn main() -> gearbox::anyhow::Result<()> {
     App::new()
         .add_plugin(GearboxRenderPlugin)
         .on_render_startup(setup)
@@ -101,9 +117,61 @@ chaining calls before `build_mesh`.
 
 See `examples/shapes.rs` and `examples/textured.rs` for full runnable versions.
 
+### An egui debug window
+
+```rust
+use anarchy::{Res, ResMut, Resource};
+use gearbox::{App, EguiCtx, EguiPlugin, egui::egui};
+
+#[derive(Debug, Resource)]
+pub struct TestData {
+    speed: f32
+}
+
+fn main() -> gearbox::anyhow::Result<()> {
+    App::new()
+        .add_plugin(EguiPlugin)
+        .on_render_update(on_render_update)
+        .add_resource(TestData { speed: 0.5 })
+        .run()
+}
+
+fn on_render_update(egui: Res<EguiCtx>, mut test_data: ResMut<TestData>) {
+    egui::Window::new("Debug").show(&egui.context, |ui| {
+        ui.label("Hello from egui!");
+        ui.add(egui::Slider::new(&mut test_data.speed, 0.0..=1.0).text("Speed"));
+    });
+}
+```
+
+### Systems and plugins
+
+Systems are plain functions whose parameters are `anarchy` system params (`World`, `Query`,
+`Res`, `ResMut`, `Event`, ...). Add them with `on_startup`, `on_update`, `on_render_startup`
+and `on_render_update`, and use the `_with` variants (`on_update_with`,
+`on_render_update_with`, ...) to order them with `before`, `after` or `pin`. The egui pass is
+open for every render system in the default `Normal` pin.
+
+```rust
+use gearbox::{App, Plugin};
+
+struct MyPlugin;
+
+impl Plugin for MyPlugin {
+    fn build(self, app: App) -> App {
+        app.on_startup(my_startup_system)
+            .on_update(my_update_system)
+    }
+}
+```
+
+Plugins are deduplicated by type: calling `add_plugin` twice with the same plugin type only
+builds it once.
+
 ## Running the examples
 
 ```sh
+cargo run --example egui --features auto-egui
 cargo run --example basic
 cargo run --example shapes
 cargo run --example textured

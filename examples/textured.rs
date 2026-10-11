@@ -1,10 +1,10 @@
-use anarchy::{Query, Res, World};
-use cell::{App, Graphics, spawn};
+use gearbox::anarchy::{Query, Res, World};
+use gearbox::{App, Graphics, spawn};
 use gearbox::{AssetContent, BasicMesh, TextureType, Camera, GearboxRenderPlugin, LazyAssetVault, MaterialRef, MaterialVault, MeshRef, SimpleTexturedMaterial, TextureVault, Transform};
-use magician_vgpu::{glam::{self, Quat}, rust::{Vec2, Vec3}};
-use shaders::basic_vertex;
+use gearbox::magician_vgpu::{glam::{self, Quat}, rust::{Vec2, Vec3}};
+use gearbox::shaders::basic_vertex;
 
-fn main() -> anyhow::Result<()> {
+fn main() -> gearbox::anyhow::Result<()> {
     App::new()
         .add_plugin(GearboxRenderPlugin)
         .on_render_startup(setup)

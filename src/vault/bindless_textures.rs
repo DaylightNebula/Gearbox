@@ -6,7 +6,7 @@ use std::{hash::{Hash, Hasher}, marker::PhantomData, sync::{Arc, atomic::{Atomic
 use ahash::AHasher;
 use anarchy::{Res, Resource, SystemPin, World, pin};
 use anyhow::bail;
-use cell::{App, Graphics, Plugin, run_async};
+use crate::{App, Graphics, Plugin, run_async};
 use getset::Getters;
 use derive_more::{Deref, DerefMut};
 use image::{GenericImageView, ImageBuffer, Rgba};

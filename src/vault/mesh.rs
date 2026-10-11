@@ -3,7 +3,7 @@ use std::{any::TypeId, hash::{Hash, Hasher}, io::{BufReader, Cursor}, sync::Arc}
 use ahash::AHasher;
 use anarchy::{AsAny, EntityID, Res, Resource, SystemPin, World, pin};
 use anyhow::Context;
-use cell::{App, Graphics, Plugin, run_async};
+use crate::{App, Graphics, Plugin, run_async};
 use derive_more::{Deref, DerefMut};
 use mutual::{CowData, DashMap, RefCowData};
 

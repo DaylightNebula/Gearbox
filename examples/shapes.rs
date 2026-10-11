@@ -1,9 +1,9 @@
-use anarchy::{Query, Res, World};
-use cell::{App, Graphics, spawn};
+use gearbox::anarchy::{Query, Res, World};
+use gearbox::{App, Graphics, spawn};
 use gearbox::{AssetContent, TextureType, GearboxRenderPlugin, Handle, LazyAssetVault, Material, MaterialRef, MaterialVault, MeshRef, ShapeBuilder, SimpleTexturedMaterial, TextureVault, glam::*};
 use gearbox::{Camera, Transform};
 
-fn main() -> anyhow::Result<()> {
+fn main() -> gearbox::anyhow::Result<()> {
     App::new()
         .add_plugin(GearboxRenderPlugin)
         .on_render_startup(startup_triangle)
@@ -74,7 +74,7 @@ fn add_shape(
     builder: &ShapeBuilder,
     position: Vec3,
     mat_handle: Handle<Box<dyn Material>>
-) -> anyhow::Result<()> {
+) -> gearbox::anyhow::Result<()> {
     // create shape
     let mesh = builder
         .build_mesh(&*graphics)?;

@@ -10,7 +10,7 @@
 
 use anarchy::World;
 use anyhow::Context;
-use cell::Graphics;
+use crate::Graphics;
 
 use crate::{AssetContent, AtlasTextureAsset, AtlasTextureVault, BindlessArrayTextureAsset, TextureType, BindlessArrayTextureVault, Handle, LoadableAssetVault};
 
