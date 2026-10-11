@@ -312,8 +312,11 @@ pub fn update_bindless_textures(
         vault.dirty.store(true, Ordering::Release);
     }
 
+    // nothing to bind until the first texture is uploaded, wgpu rejects empty texture arrays
+    if vault.texture_arr.lock_ref().is_empty() { return }
+
     // check if bind group needs rebuilding
-    if vault.dirty.swap(false, Ordering::AcqRel) || vault.bind_group.is_null() { // && !vault.texture_arr.lock_mut().is_empty() {
+    if vault.dirty.swap(false, Ordering::AcqRel) || vault.bind_group.is_null() {
         let binding = vault.texture_arr.lock_ref();
         let views = binding
             .iter()

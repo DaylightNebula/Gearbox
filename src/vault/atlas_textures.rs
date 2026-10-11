@@ -355,8 +355,11 @@ pub fn update_atlas_textures(
         vault.dirty.store(true, Ordering::Release);
     }
 
+    // nothing to bind until the first texture creates the atlas page
+    if vault.page.is_null() { return }
+
     // check if bind group needs rebuilding
-    if vault.dirty.swap(false, Ordering::AcqRel) || vault.bind_group.is_null() { // && !vault.texture_arr.lock_mut().is_empty() {
+    if vault.dirty.swap(false, Ordering::AcqRel) || vault.bind_group.is_null() {
         let sampler = graphics.device().create_sampler(&wgpu::SamplerDescriptor {
             label: Some("atlas_textures_sampler"),
             address_mode_u: wgpu::AddressMode::ClampToEdge,
