@@ -28,7 +28,6 @@ pub struct Camera {
     fovy_radians: f32,
     znear: f32,
     zfar: f32,
-    #[serde(skip)]
     buffers: Option<CameraBuffers>
 }
 

@@ -33,7 +33,6 @@ pub trait Mesh: Any + AsAny + Send {
 /// A [`Component`](anarchy::Component) wrapping a type-erased [`Mesh`], attached to
 /// an entity alongside a [`MaterialRef`](crate::MaterialRef) to make it renderable.
 #[derive(Deref, DerefMut, Component)]
-#[component(no_serialize)]
 pub struct MeshRef(pub Box<dyn Mesh>);
 
 impl std::fmt::Debug for MeshRef {

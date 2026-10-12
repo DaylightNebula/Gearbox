@@ -53,7 +53,6 @@ pub trait Material: Any + Send {
 /// A [`Component`](anarchy::Component) wrapping a type-erased [`Material`], attached to
 /// an entity alongside a [`MeshRef`](crate::MeshRef) to make it renderable.
 #[derive(Deref, DerefMut, Component)]
-#[component(no_serialize)]
 pub struct MaterialRef(pub Box<dyn Material>);
 
 impl std::fmt::Debug for MaterialRef {
