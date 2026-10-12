@@ -35,17 +35,17 @@ pub trait Material: Any + Send {
     fn id(&self) -> TypeId { TypeId::of::<Self>() }
 
     fn create_pipeline<'a>(
-        &self, 
+        &self,
         vgpu: &VirtualGpu,
         world: &World
     ) -> anyhow::Result<PipelineBuilder<'a>>;
 
     fn prep_render_entity(
-        &self, 
-        vgpu: &VirtualGpu, 
-        pass: &mut SinglePass, 
+        &self,
+        vgpu: &VirtualGpu,
+        pass: &mut SinglePass,
         world: &World,
-        camera: &Camera, 
+        camera: &Camera,
         entity: EntityID
     ) -> anyhow::Result<()>;
 }
@@ -53,6 +53,7 @@ pub trait Material: Any + Send {
 /// A [`Component`](anarchy::Component) wrapping a type-erased [`Material`], attached to
 /// an entity alongside a [`MeshRef`](crate::MeshRef) to make it renderable.
 #[derive(Deref, DerefMut, Component)]
+#[component(no_serialize)]
 pub struct MaterialRef(pub Box<dyn Material>);
 
 impl std::fmt::Debug for MaterialRef {
@@ -72,7 +73,7 @@ impl MaterialRef {
 /// still be contained by a MaterialRef.  This is meant for lazy loading
 /// of materials outside of traditional asset loading or when loaders
 /// need to lazy load materials outside of traditional handles.
-/// 
+///
 /// This maps to a `CowData`, so this can be cloned while referencing the
 /// same underlying data.  While the `CowData` is unfilled, the type ID
 /// will be a generic type ID, not the type ID of the data it will eventually
@@ -81,13 +82,13 @@ impl MaterialRef {
 pub type HotSwapMaterial = CowData<Box<dyn Material>>;
 
 impl Material for HotSwapMaterial {
-    fn id(&self) -> TypeId { 
+    fn id(&self) -> TypeId {
         if self.is_null() { return TypeId::of::<Self>() }
-        self.get_ref().id() 
+        self.get_ref().id()
     }
 
     fn create_pipeline<'a>(
-        &self, 
+        &self,
         vgpu: &VirtualGpu,
         world: &World
     ) -> anyhow::Result<PipelineBuilder<'a>> {
@@ -96,11 +97,11 @@ impl Material for HotSwapMaterial {
     }
 
     fn prep_render_entity(
-        &self, 
-        vgpu: &VirtualGpu, 
-        pass: &mut SinglePass, 
+        &self,
+        vgpu: &VirtualGpu,
+        pass: &mut SinglePass,
         world: &World,
-        camera: &Camera, 
+        camera: &Camera,
         entity: EntityID
     ) -> anyhow::Result<()> {
         if self.is_null() { bail!("Unfilled hotswap material") }

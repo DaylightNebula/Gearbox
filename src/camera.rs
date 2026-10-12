@@ -28,6 +28,7 @@ pub struct Camera {
     fovy_radians: f32,
     znear: f32,
     zfar: f32,
+    #[serde(skip)]
     buffers: Option<CameraBuffers>
 }
 
@@ -110,7 +111,7 @@ impl Camera {
     /// the given format and usage will be created using `StaticTexture::framebuffer`. None
     /// will be returned if the internal buffers of this `Camera` have not been initialized.
     pub fn get_or_compute_framebuffer(
-        &mut self, 
+        &mut self,
         vgpu: &VirtualGpu,
         key: FrameBufferKey,
         format: wgpu::TextureFormat,
@@ -119,8 +120,8 @@ impl Camera {
     ) -> Option<&StaticTexture> {
         if let Some(buffers) = self.buffers.as_mut() {
             // let buffer = buffers.framebuffers.get(&key);
-            // let is_buffer_valid = buffer.map(|buffer| 
-            //         buffer.texture.width() == dimensions.x && 
+            // let is_buffer_valid = buffer.map(|buffer|
+            //         buffer.texture.width() == dimensions.x &&
             //         buffer.texture.height() == dimensions.y
             //     ).unwrap_or(false);
 
@@ -150,19 +151,19 @@ impl Camera {
         // generate view and projection matricies
         #[allow(deprecated)]
         let vp_mat = OPENGL_TO_WGPU_MATRIX * Mat4::perspective_rh(
-            0.785398, 
-            vgpu.config().width as f32 / vgpu.config().height as f32, 
+            0.785398,
+            vgpu.config().width as f32 / vgpu.config().height as f32,
             0.1, 10000.0
         ) * Mat4::look_at_rh(
-            transform.translation.into(), 
-            Vec3::new(0.0, 0.0, 0.0).into(), 
+            transform.translation.into(),
+            Vec3::new(0.0, 0.0, 0.0).into(),
             Vec3::new(0.0, 1.0, 0.0).into()
         );
 
         // build new camera shader info object
-        let camera = shaders::common::Camera { 
-            view_pos: rust::Vec4::from_vec3_w(transform.translation.into(), 0.0), 
-            view_proj: vp_mat.into() 
+        let camera = shaders::common::Camera {
+            view_pos: rust::Vec4::from_vec3_w(transform.translation.into(), 0.0),
+            view_proj: vp_mat.into()
         };
 
         // create or update camera buffers

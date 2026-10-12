@@ -41,10 +41,10 @@ fn setup_egui(
     // setup egui context, state, and renderer
     let context = egui::Context::default();
     let state = graphics.window().map(|window| egui_winit::State::new(
-        context.clone(), 
-        egui::ViewportId::ROOT, 
-        window, 
-        Some(window.scale_factor() as f32), 
+        context.clone(),
+        egui::ViewportId::ROOT,
+        window,
+        Some(window.scale_factor() as f32),
         None, None
     ));
     let renderer = egui_wgpu::Renderer::new(
@@ -121,7 +121,7 @@ fn end_egui_frame(
                     load_op: LoadOp::Load,
                     store_op: StoreOp::Store
                 }
-            ], 
+            ],
             None
         );
 
