@@ -41,6 +41,7 @@ must also depend on `anarchy` directly.
 |---|---|
 | `auto-egui` | Automatically adds `EguiPlugin` when `App::new()` is called. |
 | `dbg-schedules` | Implies `auto-egui`. Adds an egui window showing the update and render FPS. |
+| `editor` | Adds `EditorPlugin`: an egui entity list and inspector for viewing and editing reflected components. |
 
 ## Usage
 
@@ -144,6 +145,29 @@ fn on_render_update(egui: Res<EguiCtx>, mut test_data: ResMut<TestData>) {
 }
 ```
 
+### Editing components (`editor` feature)
+
+With the `editor` feature, `App::new()` adds `EditorPlugin`: an "Entities" window lists every
+entity, and selecting one opens an inspector for its components. It works through anarchy's
+reflection, so a component shows up once it derives `Reflect` (gearbox's `Transform` and
+`Camera` already do). Field docs become hover text, and `#[reflect(hint(min, max))]` turns a
+number into a slider. Edits go through `World::set_component_path`, so they send
+`ReflectEdit` events.
+
+```rust
+use anarchy::{Component, Reflect};
+
+/// Spins an entity around its Y axis.
+#[derive(Debug, Component, Reflect)]
+struct Spin {
+    /// Radians per update.
+    #[reflect(hint(min = 0.0, max = 0.2))]
+    speed: f32,
+}
+```
+
+See `examples/editor.rs` (`cargo run --example editor --features editor`).
+
 ### Systems and plugins
 
 Systems are plain functions whose parameters are `anarchy` system params (`World`, `Query`,
@@ -241,4 +265,5 @@ cargo run --example egui --features auto-egui
 cargo run --example basic
 cargo run --example shapes
 cargo run --example textured
+cargo run --example editor --features editor
 ```

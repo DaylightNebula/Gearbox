@@ -1,4 +1,4 @@
-use anarchy::Component;
+use anarchy::{Component, Reflect};
 use getset::{Getters, MutGetters, Setters};
 use magician_vgpu::glam::{Mat4, Quat, Vec3};
 
@@ -6,11 +6,14 @@ use magician_vgpu::glam::{Mat4, Quat, Vec3};
 ///
 /// Read by [`Camera`](crate::Camera) (view matrix) and mesh types like
 /// [`BasicMesh`](crate::BasicMesh) (instance matrix) each render frame.
-#[derive(Component, Copy, Clone, Debug, Getters, MutGetters, Setters)]
+#[derive(Component, Reflect, Copy, Clone, Debug, Getters, MutGetters, Setters)]
 #[getset(get = "pub", get_mut = "pub", set = "pub")]
 pub struct Transform {
+    /// Position in world space.
     pub translation: Vec3,
+    /// Orientation in world space.
     pub rotation: Quat,
+    /// Size multiplier along each axis.
     pub scale: Vec3
 }
 

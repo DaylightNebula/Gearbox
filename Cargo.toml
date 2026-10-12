@@ -6,9 +6,11 @@ edition = "2024"
 [features]
 auto-egui = []
 dbg-schedules = ["auto-egui"]
+# An egui editor for viewing and editing reflected components
+editor = []
 
 [dependencies]
-anarchy = { path = "../anarchy" }
+anarchy = { path = "../anarchy", features = ["glam"] }
 magician-vgpu = { path = "../shader_magician/magician-vgpu" }
 mutual = "1.0.2"
 anyhow = "1"
@@ -51,3 +53,7 @@ wasm-bindgen-futures = "0.4"
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 wasm-bindgen-test = "0.3"
+
+[[example]]
+name = "editor"
+required-features = ["editor"]

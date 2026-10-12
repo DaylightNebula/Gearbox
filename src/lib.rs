@@ -23,6 +23,8 @@ use magician_vgpu::{LoadOp, PassAttachment, PassTarget, SinglePass, StoreOp, gla
 pub mod app;
 pub mod camera;
 pub mod egui;
+#[cfg(feature = "editor")]
+pub mod editor;
 pub mod frames;
 pub mod gpu;
 pub mod material;
@@ -38,6 +40,8 @@ pub(crate) mod wrapper;
 pub use app::*;
 pub use camera::*;
 pub use egui::*;
+#[cfg(feature = "editor")]
+pub use editor::*;
 pub use frames::*;
 pub use gpu::*;
 pub use material::*;

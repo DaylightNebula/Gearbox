@@ -1,6 +1,6 @@
 ---
 name: app
-description: Use when writing a Rust application or game on the gearbox crate - adding the dependency, building an App, adding plugins, resources and systems to the startup/update/render graphs, ordering systems with pins, update and render rates, delta time, reading window and input events, spawning entities, background tasks with run_async, egui debug UI, and building for the web. For drawing meshes, materials, textures and cameras see the gearbox rendering skill; for ECS basics (queries, resources, hierarchy) see the anarchy skills.
+description: Use when writing a Rust application or game on the gearbox crate - adding the dependency, building an App, adding plugins, resources and systems to the startup/update/render graphs, ordering systems with pins, update and render rates, delta time, reading window and input events, spawning entities, background tasks with run_async, egui debug UI, the component editor, and building for the web. For drawing meshes, materials, textures and cameras see the gearbox rendering skill; for ECS basics (queries, resources, hierarchy) see the anarchy skills.
 ---
 
 # gearbox: apps, systems and plugins
@@ -269,6 +269,31 @@ App::new().add_plugin(EguiPlugin).on_render_update(debug_ui).run()
 - Draw UI from render systems in the `Normal` pin.
 - The `auto-egui` cargo feature adds `EguiPlugin` automatically. `dbg-schedules` adds a
   window showing the update and render FPS.
+
+## Editor
+
+The `editor` cargo feature adds `EditorPlugin` in `App::new()`: an egui entity list and an
+inspector that views and edits components through anarchy reflection.
+
+```rust
+use gearbox::anarchy::{Component, Reflect};
+
+/// Spins an entity around its Y axis.
+#[derive(Debug, Component, Reflect)]
+struct Spin {
+    /// Radians per update, shown as hover text.
+    #[reflect(hint(min = 0.0, max = 0.2))] // a slider instead of a drag value
+    speed: f32,
+}
+```
+
+- A component appears in the inspector once it derives `Reflect`; others are listed as "not
+  reflected". Generic components must be registered with `world.register_component::<T>()`.
+- Users of the derive need a direct `anarchy` dependency, as with `Component`.
+- `Transform` and `Camera` are reflected; glam vectors show as `x y z`, and `Quat` as Euler
+  angles in degrees.
+- Edits use `World::set_component_path`, which sends `ReflectEdit` events.
+- `EditorState` (a resource) holds the selected entity.
 
 ## Web
 

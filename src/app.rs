@@ -113,6 +113,11 @@ impl App {
             app = app.add_plugin(crate::EguiPlugin);
         }
 
+        #[cfg(feature = "editor")]
+        {
+            app = app.add_plugin(crate::EditorPlugin);
+        }
+
         #[cfg(feature = "dbg-schedules")]
         {
             app = app.on_render_update(dbg_schedules);

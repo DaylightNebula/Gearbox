@@ -16,7 +16,7 @@ skill disagrees with the code, trust the code.
 
 | Path | What it is |
 | --- | --- |
-| `../anarchy` | The ECS. It has its own repo skill and user skills (`plugins/anarchy/skills`). Read those for ECS behaviour |
+| `../anarchy` | The ECS, used with its `glam` feature (`Reflect` for glam types). It has its own repo skill and user skills (`plugins/anarchy/skills`). Read those for ECS behaviour |
 | `../shader_magician` | `magician-vgpu` (GPU wrapper: `VirtualGpu`, `RenderFrame`, `SinglePass`, buffers, textures), `magician-rust` and `magician-macros` (Rust-to-WGSL shaders) |
 
 A bug can live in a sibling. Fix it there, and build gearbox against it.
@@ -32,6 +32,7 @@ A bug can live in a sibling. Fix it there, and build gearbox against it.
 | `src/schedule.rs` | `UpdateRate`/`RenderRate`/delta-time resources, `Pacer`, `ErrorLog`, and `MainRenderPassSchedule` with `render_mesh_material` |
 | `src/gpu.rs` | `Graphics` (wraps `VirtualGpu`) and `Frame` (the in-progress `RenderFrame`) resources |
 | `src/egui.rs`, `src/plugin.rs`, `src/utils.rs` | `EguiPlugin`/`EguiCtx` (with a windowless input path); the `Plugin` trait; `WindowEvent`/`DeviceEvent`, `spawn`, `next_entity_id`, `run_async` and its in-flight counter (`wait_for_async_tasks`) |
+| `src/editor.rs` | `EditorPlugin`/`EditorState` (`editor` feature): egui entity list and component inspector built on anarchy reflection (`to_value` to read, `set_component_path` to write) |
 | `src/camera.rs`, `src/transform.rs` | `Camera` and `Transform` components |
 | `src/mesh/`, `src/material/` | `Mesh`/`MeshRef`, `BasicMesh`; `Material`/`MaterialRef`, `BasicMaterial`, `SimpleTexturedMaterial`, `MaterialPipelineStorage` |
 | `src/shapes/` | `ShapeBuilder` and the primitive shapes |
@@ -69,9 +70,10 @@ A bug can live in a sibling. Fix it there, and build gearbox against it.
 
 ```sh
 cargo build --all-targets                  # no warnings expected
-cargo build --all-targets --all-features   # also covers auto-egui / dbg-schedules
+cargo build --all-targets --all-features   # also covers auto-egui / dbg-schedules / editor
 cargo test                                 # unit tests, plus tests/headless.rs (renders on the GPU)
 cargo run --example shapes                 # also basic, textured, egui; obj needs a model
+cargo run --example editor --features editor
 ```
 
 - Run examples from the repo root: asset paths like `./examples/cobblestone.png` are
