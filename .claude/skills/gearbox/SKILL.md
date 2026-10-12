@@ -1,13 +1,15 @@
 ---
 name: gearbox
-description: How to work on the gearbox crate itself (Rust renderer and app framework on anarchy, winit and wgpu) - where things live, the sibling repos it depends on, how to build, test and run the examples, internal gotchas, conventions, and keeping the README and user-facing skills in sync. Use when changing, testing or documenting code in this repository.
+description: How to work on the gearbox crate itself (Rust renderer and app framework on anarchy, winit and wgpu, with its SDF ui module, skeletal animation and rapier physics) - where things live, the sibling repos it depends on, how to build, test and run the examples, internal gotchas, conventions, and keeping the README and user-facing skills in sync. Use when changing, testing or documenting code in this repository.
 ---
 
 # Working on gearbox
 
 gearbox is an ECS-based renderer and app framework: an anarchy `World` runs inside a winit
 window and is drawn with wgpu through `magician_vgpu`. It absorbed the former `cell` crate
-(the `App`, plugins, egui and event loop). The API is early and changes freely. When this
+(the `App`, plugins, egui and event loop), and later `iso_ui` (now `src/ui`), `skeletal`
+(`src/skeletal`, `skeletal` feature) and `anarchy_rapier` (`src/rapier`, `rapier` feature).
+The API is early and changes freely. When this
 skill disagrees with the code, trust the code.
 
 ## Sibling repos
@@ -37,9 +39,12 @@ A bug can live in a sibling. Fix it there, and build gearbox against it.
 | `src/mesh/`, `src/material/` | `Mesh`/`MeshRef`, `BasicMesh`; `Material`/`MaterialRef`, `BasicMaterial`, `SimpleTexturedMaterial`, `MaterialPipelineStorage` |
 | `src/shapes/` | `ShapeBuilder` and the primitive shapes |
 | `src/vault/` | Asset system: `Handle`, `AssetContent`, the vault traits, the bindless and atlas texture vaults, `TextureVault` facade, `MaterialVault`, `MeshAssetVault` |
-| `shaders/` | Separate crate of Rust shaders. `build.rs` writes WGSL to `shaders/shader_out` (gitignored) |
-| `examples/` | `basic`, `shapes`, `textured`, `obj`, `egui`, plus test textures in every format |
-| `tests/headless.rs` | End-to-end tests that run whole apps headless and check screenshot pixels |
+| `src/ui/` | SDF UI (always on), see [UI module](#ui-module) |
+| `src/skeletal/` | `skeletal` feature: `SkeletalMeshPlugin`, `SkeletalMeshVault` (async glTF/FBX loads, finished by `load_inprogress` in a render system), `SkeletalMeshHandle` (a `Mesh` with its own skinning pipeline), `Animator`/`AnimationVault`, `loader::{gltf, fbx}` (fbx is native only) |
+| `src/rapier/` | `rapier` feature: `PhysicsPlugin` and `update_engine_side` (update `End` pin), `PhysicsEngine` (wraps the rapier sets), `PhysicsObject`, `PhysicsCharacter`, `Collider`, `PhysicsQueries` |
+| `shaders/` | Separate crate of Rust shaders. `build.rs` writes WGSL to `shaders/shader_out` (gitignored). `shaders::skeletal` (the skinning shader) is behind the crate's `skeletal` feature, which gearbox's `skeletal` feature turns on; its WGSL is generated either way |
+| `examples/` | `basic`, `shapes`, `textured`, `obj`, `egui`, `editor`; `ui_*` (UI); `skeletal_*/` (need `--features skeletal`, model files not committed); test textures in every format and `LiberationSans-Regular.ttf` |
+| `scripts/` | `check_skills.py` (compiles the user skills' snippets) and `pngdiff.py` (screenshot diffs) |
 | `docs/intelligence.md` | Roadmap for making gearbox agent-friendly |
 | `plugins/gearbox/skills/` | User-facing skills (`app`, `rendering`). Keep them in sync, see below |
 
@@ -71,7 +76,7 @@ A bug can live in a sibling. Fix it there, and build gearbox against it.
 ```sh
 cargo build --all-targets                  # no warnings expected
 cargo build --all-targets --all-features   # also covers auto-egui / dbg-schedules / editor
-cargo test                                 # unit tests, plus tests/headless.rs (renders on the GPU)
+cargo test --all-features                  # unit tests (vault, ui layout, picking and widget systems)
 cargo run --example shapes                 # also basic, textured, egui; obj needs a model
 cargo run --example editor --features editor
 ```
@@ -84,23 +89,24 @@ cargo run --example editor --features editor
 
 ## Testing the web build
 
-`scripts/test-wasm.sh` checks the `wasm32` target. Run it after touching anything web-only
-(`cfg(target_arch = "wasm32")` code, time, asset fetching, canvas setup):
-- **What it does:** it compile-checks anarchy, magician-vgpu and gearbox for `wasm32`, then
-  runs `tests/wasm.rs` in Node through `wasm-bindgen-test-runner` (set as the cargo runner
-  in `.cargo/config.toml`).
-- **`--web [EXAMPLE]`:** also builds the example with Trunk and loads it in headless
-  Chromium (`tests/web/smoke.mjs`, Playwright). It fails on a panic, a console error, a
-  failed request or a blank canvas, and saves `target/web-EXAMPLE.png`. Open it to look.
-- **Tool checks:** the script checks its tools first and prints the install command for
-  anything missing: rustup and the wasm target, `wasm-bindgen-cli` at exactly the
-  `wasm-bindgen` crate's version, Trunk, and Playwright.
-- **Homebrew's Rust can't build for wasm32.** The script puts `~/.cargo/bin` (rustup)
-  first on `PATH`.
-- **Writing wasm tests:** use `#[wasm_bindgen_test]` (plain `#[test]` doesn't run there).
-  Node has no window or GPU, so keep them to logic: events, graphs, assets from memory,
-  `run_async`. Rendering on the web is covered by the `--web` smoke test.
-- `tests/headless.rs` is native only (`#![cfg(not(target_arch = "wasm32"))]`).
+Check the `wasm32` target after touching anything web-only (`cfg(target_arch = "wasm32")`
+code, time, asset fetching, canvas setup), or any feature module:
+
+```sh
+PATH=~/.cargo/bin:$PATH cargo check --target wasm32-unknown-unknown --all-targets --all-features
+PATH=~/.cargo/bin:$PATH cargo test --target wasm32-unknown-unknown --all-features --lib
+```
+
+- **Homebrew's Rust can't build for wasm32.** Put `~/.cargo/bin` (rustup) first on `PATH`.
+- `cargo test` on wasm32 runs in Node through `wasm-bindgen-test-runner` (the cargo runner in
+  `.cargo/config.toml`). Use `#[wasm_bindgen_test]` there, and keep tests to logic: Node has
+  no window or GPU. Tests needing threads, files, sockets or `pollster` go under
+  `#[cfg(all(test, not(target_arch = "wasm32")))]`, like the vault tests.
+- **Desktop-only pieces:** FBX loading (`ufbx`; `SkeletalMeshLoadType::FBX` doesn't exist on
+  wasm32), the `rfd` file dialog in `skeletal_viewer`, and `arboard` clipboard access.
+  Examples using them still have to compile for wasm32: gate those parts, and give a
+  native-only example a stub `main` (see `skeletal_fbx`).
+- `trunk serve` builds the example named in `Trunk.toml` to try it in a browser.
 
 ## Verifying visual changes
 
@@ -114,15 +120,83 @@ GEARBOX_HEADLESS=640x480 GEARBOX_SCREENSHOT=/tmp/shapes.png cargo run --example 
 - Headless runs use a fixed 1/60 s step and wait for asset loads, so the same command
   gives the same image every time.
 - `GEARBOX_FRAMES` and `GEARBOX_FIXED_TIMESTEP` control the frame count and step.
-- For a lasting check, add a test to `tests/headless.rs`: build the scene with `.headless`,
-  `.with_frame_limit` and `.with_screenshot`, then assert on pixels. The headless target
-  is sRGB, so a clear color of `(1, 0, 0, 1)` reads back as `[255, 0, 0, 255]`.
-- Every test there skips itself when `run` reports "No GPU adapter".
+- In code, build the scene with `.headless`, `.with_frame_limit` and `.with_screenshot`. The
+  headless target is sRGB, so a clear color of `(1, 0, 0, 1)` reads back as
+  `[255, 0, 0, 255]`. A GPU test must skip itself when `run` reports "No GPU adapter".
+- Compare two screenshots with `python3 -I scripts/pngdiff.py before.png after.png`. Take the
+  "before" one first, rather than stashing work to rebuild it.
 - A windowed run proves less: a hidden or covered window reports `Occluded` and draws
   nothing. Smoke-test windowed mode with a frame limit:
   `GEARBOX_FRAMES=30 cargo run --example shapes` should exit on its own with status 0.
 
+## UI module
+
+`src/ui` draws UI as signed distance fields in one fullscreen fragment pass, laid out as CSS
+flexbox through taffy. Three ways to build UI: `UINodeSDFRoot` node trees, entity nodes (with
+behavior-only and themed widgets), and immediate mode (`Widget`/`Ui`).
+
+| Path | What lives there |
+| --- | --- |
+| `mod.rs` | `UIPlugin` (resources and system ordering), GPU setup (`init_resources`), `ui_render_pass` (merges entity elements, `UINodeSDFRoot` trees and `UIRawElements`, uploads and draws) |
+| `nodes/data.rs`, `nodes/render.rs` | `UINode`, `Style`, `Val`, `Anchor`, `Text`; layout (`layout_tree` builds a taffy tree and emits `SDFElement`s in paint order). Layout tests |
+| `data.rs`, `shader.rs`, `shaders/*.wgsl` | `SDFElement`/`SDFShape`/`SDFStyle`, their GPU layouts, and the WGSL (`include_str!`'d) |
+| `fonts/` | `SDFFont`: text measuring, glyphs as bezier SDFs |
+| `widgets.rs` | Immediate mode (`WidgetPlugin`, `Widget`, `Ui`), `Theme`, `srgb`, and the size constants themed widgets share |
+| `ecs/` | Entity UI: `node.rs` (`Node`, `UiBundle`, `spawn_ui`), `layout.rs`, `picking.rs`, `input.rs` (`UiInput`, `UiFocus`, `UiTheme`, `ThemeOverride`), `controls.rs` (behavior-only widgets, system tests), `themed.rs` (`themed::` builders, `restyle_themed`) |
+
+Frame order, by render pin:
+1. **`Start`:** `read_ui_input` fills `UiInput`; `widgets_begin` hit tests last frame's
+   windows; `pick_ui` uses last frame's `ComputedNode`s; then the `UiWidgetsPlugin` systems.
+2. **`Normal`:** user systems and immediate mode descriptions.
+3. **`End`:** `widgets_end`, `restyle_themed`, `layout_entity_ui`, then `ui_render_pass`
+   (entity elements first, then node trees, so immediate windows draw on top).
+
+UI gotchas:
+- **Parity.** `ui_entity_widgets` and `ui_widgets` must render identical pixels. When a widget
+  changes, change both `Ui` and its `themed::` builder or restyle arm, then diff screenshots of
+  the two with `python3 -I scripts/pngdiff.py a.png b.png`. Themed parts are found by child
+  index, so changing a builder's children means updating its restyle arm too.
+- **Defaults differ from CSS:** `flex_direction` is `Column`, `Auto` margins, padding, borders
+  and gaps are 0, and borders take room inside the size. `Percent` is parent-relative,
+  `PercentWidth`/`PercentHeight` window-relative.
+- **Scaling:** entity styles are scaled by the window scale factor in `layout_entity_ui`;
+  `UINodeSDFRoot` trees aren't, and immediate mode scales itself through `px()`.
+- **Style setters** (`getset`) return `&mut Style`, so closures calling them need braces.
+  `Node` deliberately doesn't deref to `Style`.
+- **No clipping:** `Overflow::Clip` isn't implemented in the shader. Lists hide rows instead.
+- **Buffer limits:** the SDF buffers are capped (`MAX_BUFFER_ELEMENTS`, less under WebGL), and
+  every glyph is one element.
+- **Input in headless runs:** there is none. Send `WindowEvent(CursorMoved/MouseInput)` from a
+  render system in a throwaway `examples/zz_check.rs`, keyed on `FrameCount`. Key events can't
+  be built; test typing through `UiInput.keys` in unit tests.
+- Widget systems can be tested without a GPU: build a `World`, insert a `UiInput`, and run the
+  system through `SingleThreadedExecutor` (see `ecs/controls.rs`).
+
+## Skeletal and rapier gotchas
+
+- **Skeletal:**
+  - `AnimationInfo` (in `shaders/src/skeletal.rs`) holds 128 bone and 128 node matrices: 16 KiB, the
+    WebGL2 uniform limit. `MAX_SKELETAL_BONES` must match it.
+  - `Animator` time is advanced by `advance_animators` from `RenderDeltaTime`, never the wall
+    clock, so fixed-step headless runs are deterministic.
+  - One `AnimationInfo` buffer per handle is rewritten for each root bone during a draw, so
+    (like shared meshes) a model with several root bones draws them all with the last root's
+    matrices.
+- **Rapier:**
+  - anarchy's `Query::new` requires every listed component, `Option` ones included, so
+    `update_engine_side` walks characters and plain bodies with two queries. Don't merge them
+    back into one with `Option<&mut PhysicsCharacter>`: plain bodies would stop simulating.
+  - The engine steps by `UpdateDeltaTime` (capped at `MAX_STEP`).
+  - In that system, use `continue` to skip an entity, never `return`: returning skips the
+    query run and the step for every body.
+  - Tests in `src/rapier/mod.rs` run the system on a bare `World` with no GPU.
+
 ## Gotchas
+
+- **Shader struct names are global.** The shader generator resolves struct names across the
+  whole `shaders` crate, not per module, so two shader modules with a `VertexOutput` produce
+  broken WGSL ("Compose ... ComponentCount" at build time) or silently use the wrong layout.
+  Give each shader's input/output structs a unique name (`SkeletalVertexInput`, ...).
 
 - **Graphics timing.** `Graphics` exists only after the window does. Update and startup
   systems taking `Res<Graphics>` fail (logged once by `ErrorLog`) until then. GPU work
@@ -177,8 +251,11 @@ GEARBOX_HEADLESS=640x480 GEARBOX_SCREENSHOT=/tmp/shapes.png cargo run --example 
 
 When a public API or behaviour changes:
 - Update `README.md`.
-- Update the matching user skill in `plugins/gearbox/skills/` (`app` for the
-  App/systems/events side, `rendering` for meshes/materials/textures/camera).
-- Check skill snippets compile by pasting them into a throwaway `examples/zz_check.rs`,
-  running `cargo build --example zz_check`, then deleting the file.
+- Update the matching user skill in `plugins/gearbox/skills/`: `app` (App/systems/events),
+  `rendering` (meshes/materials/textures/camera), `ui-layout`, `ui-entity-widgets`,
+  `ui-immediate-widgets`, `skeletal` and `physics`.
+- Check skill snippets compile:
+  `python3 -I scripts/check_skills.py && cargo build --example zz_check --all-features; rm examples/zz_check.rs`.
+  It skips `app` and `rendering`, whose snippets are fragments: paste those into
+  `examples/zz_check.rs` by hand. Check README snippets the same way.
 - Run `claude plugin validate .` after editing any plugin file.

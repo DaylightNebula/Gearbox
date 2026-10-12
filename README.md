@@ -25,6 +25,12 @@ A simple ECS based renderer and app framework for `Anarchy`, built on top of `wi
   texture) materials.
 - `vault` — a generic, not-yet-integrated asset-loading system for
   reference-counted GPU resources such as textures.
+- `ui` — signed-distance-field UI drawn in one fullscreen pass: flexbox node trees, entity
+  widgets and immediate mode widgets (formerly the `iso_ui` crate).
+- `skeletal` (`skeletal` feature) — skinned glTF/FBX model loading, animation and GPU
+  skinning (formerly the `skeletal` crate).
+- `rapier` (`rapier` feature) — rapier3d physics driving and driven by `Transform`s
+  (formerly the `anarchy_rapier` crate).
 
 This crate is part of a small workspace of sibling crates (`anarchy`,
 `shader_magician/magician-vgpu`) referenced by relative path in `Cargo.toml`, so it is
@@ -42,6 +48,8 @@ must also depend on `anarchy` directly.
 | `auto-egui` | Automatically adds `EguiPlugin` when `App::new()` is called. |
 | `dbg-schedules` | Implies `auto-egui`. Adds an egui window showing the update and render FPS. |
 | `editor` | Adds `EditorPlugin`: an egui entity list and inspector for viewing and editing reflected components. |
+| `skeletal` | Adds the `skeletal` module: skinned mesh loading (glTF/GLB, and FBX on desktop) and animation. |
+| `rapier` | Adds the `rapier` module: rapier3d physics bodies, characters and queries. |
 
 ## Usage
 
@@ -168,6 +176,85 @@ struct Spin {
 
 See `examples/editor.rs` (`cargo run --example editor --features editor`).
 
+### UI
+
+`ui` draws UI as signed distance fields (rectangles, circles, bezier strokes and font glyphs)
+in a single fullscreen pass over the scene, laid out like CSS flexbox with
+[taffy](https://github.com/DioxusLabs/taffy). It offers three ways to build UI, all from
+`UIPlugin`:
+
+- **Node trees:** a `UINodeSDFRoot(UINode)` component holding a tree of `UINode`s styled with
+  `Style` (sizes as `Val`, margin/padding/border, flex row/column/grid, `Anchor`s, absolute
+  positioning, text through `SDFFont`).
+- **Entity widgets:** every node is an entity with a `Node` component, built with `UiBundle`
+  and `spawn_ui`. Behavior-only widgets (`Button`, `Checkbox`, `Slider`, `TextInput`, ...)
+  send `Activate`/`ValueChange`/`Submit` events, and `themed::` builders spawn them styled.
+- **Immediate mode widgets:** with `WidgetPlugin`, describe windows every frame through the
+  `Widget` resource.
+
+```rust
+use std::sync::Arc;
+use gearbox::anarchy::ResMut;
+use gearbox::{App, GearboxRenderPlugin, glam::Vec2, ui::*};
+
+fn main() -> gearbox::anyhow::Result<()> {
+    let font = Arc::new(SDFFont::new(include_bytes!("./LiberationSans-Regular.ttf"))?);
+    App::new()
+        .add_plugin(GearboxRenderPlugin)
+        .add_plugin(UIPlugin)
+        .add_plugin(WidgetPlugin::new(font))
+        .on_render_update(settings_ui)
+        .run()
+}
+
+fn settings_ui(mut widget: ResMut<Widget>) {
+    widget.panel("Settings", Vec2::splat(10.0), 320.0, |ui| {
+        if ui.button("Save") { log::info!("saved"); }
+    });
+}
+```
+
+See the `ui_*` examples, and the `gearbox:ui-*` skills below for the full API.
+
+### Skinned meshes (`skeletal` feature)
+
+`SkeletalMeshPlugin` adds `SkeletalMeshVault`, which loads `.gltf`/`.glb` and (on desktop)
+`.fbx` models in the background and returns mesh, material and animation handles. Draw the
+mesh like any other with `MeshRef`, and play its animations with an `Animator` component:
+
+```rust
+let (mesh, material, animations) = meshes.load(&world, AssetContent::LocalPath("model.glb".into()), SkeletalMeshLoadType::GLTF)?;
+let mut animator = Animator::empty();
+animator.load_animations(animations);
+animator.play("Idle", true);
+spawn(&world, vec![
+    Box::new(Transform::identity()),
+    Box::new(MaterialRef::new(material)),
+    Box::new(animator),
+    Box::new(MeshRef::new(mesh)),
+]);
+```
+
+See the `skeletal_gltf`, `skeletal_fbx` and `skeletal_viewer` examples. Their model files
+aren't committed: put them in `examples/skeletal_*/`, or pass one to the viewer.
+
+### Physics (`rapier` feature)
+
+`PhysicsPlugin` steps a rapier3d world in the update graph. A `PhysicsObject` (fixed or
+movable, with a `Collider` and mass) on an entity with a `Transform` gets a rigidbody, and
+physics writes its position back into the `Transform`. Add `PhysicsCharacter` for a
+kinematic character controller, and use the `PhysicsQueries` resource for raycasts and shape
+casts, answered on the next tick.
+
+```rust
+use gearbox::rapier::{Collider, PhysicsObject, PhysicsPlugin};
+
+spawn(&world, vec![
+    Box::new(Transform::new(Vec3::new(0.0, 10.0, 0.0), Quat::IDENTITY, Vec3::ONE)),
+    Box::new(PhysicsObject::movable(Collider::Sphere { radius: 0.5 }, 1.0)),
+]);
+```
+
 ### Systems and plugins
 
 Systems are plain functions whose parameters are `anarchy` system params (`World`, `Query`,
@@ -230,12 +317,15 @@ GEARBOX_HEADLESS=640x480 GEARBOX_SCREENSHOT=shapes.png cargo run --example shape
 
 ## Testing the web build
 
-`scripts/test-wasm.sh` compile-checks anarchy, magician-vgpu and gearbox for `wasm32` and
-runs `tests/wasm.rs` in Node. `scripts/test-wasm.sh --web shapes` also builds the `shapes`
-example with Trunk, loads it in headless Chromium, fails on panics, errors or a blank
-canvas, and saves a screenshot to `target/web-shapes.png`. The script lists anything it
-needs that isn't installed (rustup with the `wasm32-unknown-unknown` target,
-`wasm-bindgen-cli`, Trunk, and Playwright via `npm install` in `tests/web`).
+With rustup's `wasm32-unknown-unknown` target installed (Homebrew's Rust can't build for
+wasm32, so put `~/.cargo/bin` first on `PATH`), check the library, examples and tests:
+
+```sh
+cargo check --target wasm32-unknown-unknown --all-targets --all-features
+```
+
+`trunk serve` builds the example named in `Trunk.toml` into `index.html`'s canvas. FBX loading
+is desktop-only, so `SkeletalMeshLoadType::FBX` doesn't exist on the web.
 
 ## AI assistant skills
 
@@ -253,6 +343,11 @@ claude plugin install gearbox@gearbox
 | --- | --- |
 | `gearbox:app` | Setup, the `App` and its graphs, systems and ordering, rates and delta time, entities, events, plugins, background work, egui and the web |
 | `gearbox:rendering` | `GearboxRenderPlugin`, cameras and transforms, meshes, materials, textures, drawing in the main pass and custom materials or meshes |
+| `gearbox:ui-layout` | `UIPlugin`, `Style` and flexbox, `Val` sizes, the box model, anchors and absolute positioning, text, colors, and `UINodeSDFRoot` trees with their events |
+| `gearbox:ui-entity-widgets` | Entity nodes and `UiBundle`, behavior-only widgets and their events, `themed::` builders, theming and `ThemeOverride`, frame order |
+| `gearbox:ui-immediate-widgets` | The `Widget` resource and `Ui` builder, windows, ids and state, theme and input |
+| `gearbox:skeletal` | Loading skinned glTF/FBX models, `Animator`, hiding sub-meshes |
+| `gearbox:physics` | `PhysicsPlugin`, `PhysicsObject` and `Collider`, forces, characters, raycasts and shape casts |
 
 The skills are plain Markdown in [`plugins/gearbox/skills/`](plugins/gearbox/skills), so
 other AI tools can read them too. Contributors working on the crate itself get a separate
@@ -266,4 +361,6 @@ cargo run --example basic
 cargo run --example shapes
 cargo run --example textured
 cargo run --example editor --features editor
+cargo run --example ui_widgets          # also ui_basic, ui_layout, ui_bundles, ui_entity_widgets, ui_custom_slider
+cargo run --example skeletal_viewer --features skeletal -- path/to/model.glb
 ```

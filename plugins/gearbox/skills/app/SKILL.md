@@ -1,6 +1,6 @@
 ---
 name: app
-description: Use when writing a Rust application or game on the gearbox crate - adding the dependency, building an App, adding plugins, resources and systems to the startup/update/render graphs, ordering systems with pins, update and render rates, delta time, reading window and input events, spawning entities, background tasks with run_async, egui debug UI, the component editor, and building for the web. For drawing meshes, materials, textures and cameras see the gearbox rendering skill; for ECS basics (queries, resources, hierarchy) see the anarchy skills.
+description: Use when writing a Rust application or game on the gearbox crate - adding the dependency, building an App, adding plugins, resources and systems to the startup/update/render graphs, ordering systems with pins, update and render rates, delta time, reading window and input events, spawning entities, background tasks with run_async, egui debug UI, the component editor, and building for the web. For drawing meshes, materials, textures and cameras see the gearbox rendering skill; for UI the ui-layout, ui-entity-widgets and ui-immediate-widgets skills; for skinned models the skeletal skill; for physics the physics skill; for ECS basics (queries, resources, hierarchy) see the anarchy skills.
 ---
 
 # gearbox: apps, systems and plugins
@@ -25,6 +25,10 @@ winit = "0.30"                      # only needed to match on WindowEvent / Devi
 gearbox re-exports `anarchy`, `anyhow`, `magician_vgpu`, `glam` and `shaders`, so most apps
 need nothing else. The exception is the derives: their generated code names `::anarchy`,
 so an app that derives `Component` or `Resource` must depend on `anarchy` directly.
+
+Optional modules are behind features: `skeletal` (skinned models and animation, see the
+gearbox skeletal skill), `rapier` (physics, see the gearbox physics skill), and `editor`,
+`auto-egui` and `dbg-schedules` (below). The `ui` module is always included.
 
 ## A minimal app
 

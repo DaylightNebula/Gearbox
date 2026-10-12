@@ -1,9 +1,19 @@
 {
   "name": "gearbox",
-  "description": "Skills for building apps with the gearbox crate: the App, systems, plugins, events, egui, meshes, materials, textures and cameras",
+  "description": "Skills for building apps with the gearbox crate: the App, systems, plugins, events, egui, meshes, materials, textures, cameras, SDF UI and widgets, skinned meshes and rapier physics",
   "author": {
     "name": "DaylightNebula"
   },
   "repository": "https://github.com/DaylightNebula/Gearbox",
-  "keywords": ["rust", "gamedev", "renderer", "wgpu", "ecs", "gearbox"]
+  "keywords": [
+    "rust",
+    "gamedev",
+    "renderer",
+    "wgpu",
+    "ecs",
+    "gearbox",
+    "ui",
+    "animation",
+    "physics"
+  ]
 }

@@ -8,6 +8,10 @@ auto-egui = []
 dbg-schedules = ["auto-egui"]
 # An egui editor for viewing and editing reflected components
 editor = []
+# Skinned mesh loading (glTF/FBX), animation and rendering (`gearbox::skeletal`)
+skeletal = ["shaders/skeletal", "dep:gltf", "dep:base64", "dep:ufbx"]
+# Rapier 3D physics (`gearbox::rapier`)
+rapier = ["dep:rapier3d", "dep:bimap", "dep:dashmap", "dep:chrono"]
 
 [dependencies]
 anarchy = { path = "../anarchy", features = ["glam"] }
@@ -24,6 +28,23 @@ derive_more = "2.1.1"
 tobj = "3.2"
 web-time = "1.1.0"
 
+# ui
+serde = { version = "1.0.219", features = ["derive"] }
+ordered-float = { version = "5.3.0", features = ["bytemuck"] }
+bytemuck = { version = "1.25.1", features = ["derive"] }
+ttf-parser = "0.25.1"
+taffy = "0.14.0"
+
+# skeletal
+gltf = { version = "1.4.1", optional = true }
+base64 = { version = "0.22.1", optional = true }
+chrono = { version = "0.4.44", optional = true }
+
+# rapier
+rapier3d = { version = "0.31.0", features = ["simd-stable"], optional = true }
+bimap = { version = "0.6.3", optional = true }
+dashmap = { version = "6.1.0", optional = true }
+
 egui = "0.34"
 egui-wgpu = "0.34"
 egui-winit = { version = "0.34", default-features = false }
@@ -39,6 +60,11 @@ wgpu = "29.0"
 env_logger = "0.11"
 pollster = "1.0.1"
 ureq = "3.3.0"
+arboard = { version = "3.6.1", default-features = false }
+ufbx = { version = "0.11.2", optional = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+smithay-clipboard = "0.7.3"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 egui-winit = { version = "0.34", default-features = false, features = ["links"] }
@@ -54,6 +80,21 @@ wasm-bindgen-futures = "0.4"
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 wasm-bindgen-test = "0.3"
 
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+rfd = "0.17.2"
+
 [[example]]
 name = "editor"
 required-features = ["editor"]
+
+[[example]]
+name = "skeletal_fbx"
+required-features = ["skeletal"]
+
+[[example]]
+name = "skeletal_gltf"
+required-features = ["skeletal"]
+
+[[example]]
+name = "skeletal_viewer"
+required-features = ["skeletal"]

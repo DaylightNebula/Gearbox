@@ -30,9 +30,14 @@ pub mod gpu;
 pub mod material;
 pub mod mesh;
 pub mod plugin;
+#[cfg(feature = "rapier")]
+pub mod rapier;
 pub mod schedule;
 pub mod shapes;
+#[cfg(feature = "skeletal")]
+pub mod skeletal;
 pub mod transform;
+pub mod ui;
 pub mod utils;
 pub mod vault;
 pub(crate) mod wrapper;

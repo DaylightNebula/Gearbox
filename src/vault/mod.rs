@@ -178,7 +178,8 @@ pub trait LoadRawAssetVault: AssetVault {
     fn load_raw(&self, world: &World, input: Self::LoadRawInput) -> anyhow::Result<Self::LoadRawResult>;
 }
 
-#[cfg(test)]
+// these use pollster, the filesystem and a TCP server, none of which exist on wasm32
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
     use std::io::{Read, Write};

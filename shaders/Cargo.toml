@@ -6,6 +6,10 @@ edition = "2024"
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[features]
+# the skinning shader used by gearbox's `skeletal` feature
+skeletal = []
+
 [dependencies]
 magician-rust = { path = "../../shader_magician/magician-rust" }
 magician-macros = { path = "../../shader_magician/magician-macros" }
