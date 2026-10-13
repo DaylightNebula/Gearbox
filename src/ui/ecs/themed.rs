@@ -433,11 +433,11 @@ fn children(world: &World, id: EntityID) -> Vec<EntityID> {
     world.hierarchy().children(id).map(|children| children.to_vec()).unwrap_or_default()
 }
 
-fn get<T: ComponentMeta + Clone>(world: &World, id: EntityID) -> Option<T> {
+fn get<T: ComponentMeta + Sync + Clone>(world: &World, id: EntityID) -> Option<T> {
     world.handle(id).get::<&T>().ok().flatten().map(|found| found.clone())
 }
 
-fn has<T: ComponentMeta>(world: &World, id: EntityID) -> bool {
+fn has<T: ComponentMeta + Sync>(world: &World, id: EntityID) -> bool {
     world.handle(id).get::<&T>().ok().flatten().is_some()
 }
 

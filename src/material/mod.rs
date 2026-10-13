@@ -31,7 +31,7 @@ impl std::fmt::Debug for MaterialPipelineStorage {
 /// (shared by all instances of that type, used to key material/mesh pipelines in
 /// [`MaterialPipelineStorage`]), `create_pipeline` builds the render pipeline for
 /// this material, and `prep_render_entity` binds per-entity buffers before drawing.
-pub trait Material: Any + Send {
+pub trait Material: Any + Send + Sync {
     fn id(&self) -> TypeId { TypeId::of::<Self>() }
 
     fn create_pipeline<'a>(

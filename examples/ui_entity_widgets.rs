@@ -98,7 +98,7 @@ fn setup(world: World) {
 }
 
 /// Changes `id`'s component `T`, if it has one.
-fn change<T: anarchy::ComponentMeta>(world: &World, id: EntityID, f: impl FnOnce(&mut T)) {
+fn change<T: anarchy::ComponentMeta + Sync>(world: &World, id: EntityID, f: impl FnOnce(&mut T)) {
     if let Ok(Some(mut component)) = world.handle(id).get::<&mut T>() { f(&mut component); }
 }
 
