@@ -250,6 +250,15 @@ App::new().add_plugin(PhysicsPlugin).run()
 
 Plugins are deduplicated by type: adding one twice builds it once.
 
+- A plugin that fails while building should `return app.report_error(err)`: `run` returns the
+  first error reported.
+- Systems made at runtime (scripts, wasm modules) all share a Rust type, so they can't use
+  `on_update`. Add each under its own `anarchy::SystemKey` (a `TypeId`) instead:
+  `app.add_system_raw(AppSchedule::Update, key, Box::new(system), instruction, [key])`, where
+  `system` implements `anarchy::System<(), ()>`. A system already under `key` is replaced.
+- To load wasm modules, use the `clarity` crate (the separate Clarity project):
+  `App::new().add_wasm_module("mod.wasm")` with `clarity::ClarityAppExt` in scope.
+
 ## Background work
 
 `gearbox::run_async(future)` runs a future off the current graph: on a new thread

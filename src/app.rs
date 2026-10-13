@@ -3,7 +3,7 @@
 
 use std::{any::TypeId, collections::HashSet, path::PathBuf, sync::{Arc, atomic::AtomicBool}, time::Duration};
 
-use anarchy::{IntoSystem, Res, Resource, SingleThreadedExecutor, SystemGraph, SystemInstruction, World};
+use anarchy::{ErasedSystem, IntoSystem, Res, Resource, SingleThreadedExecutor, SystemGraph, SystemInstruction, SystemKey, SystemMeta, World};
 use derive_more::{Deref, DerefMut};
 use ::egui::Window;
 use magician_vgpu::{RenderFrame, glam::UVec2};
@@ -16,6 +16,19 @@ use crate::{DEFAULT_FIXED_TIMESTEP, DEFAULT_SCREENSHOT_FRAME, EguiCtx, EnvOption
 /// pixels. Kept in sync automatically whenever the window is resized.
 #[derive(Debug, Deref, DerefMut, Resource)]
 pub struct WindowDimensions(UVec2);
+
+/// One of the four [`SystemGraph`]s an [`App`] runs, see [`App::add_system_raw`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum AppSchedule {
+    /// Runs once before the first update, like [`App::on_startup`].
+    Startup,
+    /// Runs every update, like [`App::on_update`].
+    Update,
+    /// Runs once before the first render frame, like [`App::on_render_startup`].
+    RenderStartup,
+    /// Runs every render frame, like [`App::on_render_update`].
+    Render
+}
 
 /// Builder for a `winit`/`wgpu` application backed by an `anarchy` ECS `World`.
 ///
@@ -262,6 +275,33 @@ impl App {
         self.record(result)
     }
 
+    /// Add an already erased system to `schedule` under `key`, tagged with `metadata`. For
+    /// systems built at runtime (such as ones loaded from scripts or wasm modules), which
+    /// can't be told apart by their Rust type. A system already under `key` is replaced.
+    pub fn add_system_raw(
+        mut self,
+        schedule: AppSchedule,
+        key: SystemKey,
+        system: ErasedSystem,
+        instruction: SystemInstruction,
+        metadata: impl IntoIterator<Item = SystemMeta>
+    ) -> Self {
+        let graph = match schedule {
+            AppSchedule::Startup => &mut self.startup,
+            AppSchedule::Update => &mut self.update,
+            AppSchedule::RenderStartup => &mut self.render_startup,
+            AppSchedule::Render => &mut self.render,
+        };
+        let result = graph.append_raw(key, system, instruction, metadata.into_iter());
+        self.record(result)
+    }
+
+    /// Record an error found while building the app, such as a plugin failing to load
+    /// something. [`App::run`] returns the first one recorded.
+    pub fn report_error(self, err: anyhow::Error) -> Self {
+        self.record(Err(err))
+    }
+
     /// Keep the first error from appending a system, so `run` can return it.
     fn record(mut self, result: anyhow::Result<()>) -> Self {
         if let Err(err) = result { self.build_error.get_or_insert(err); }
@@ -285,7 +325,8 @@ impl App {
     ///
     /// # Errors
     ///
-    /// Returns the first error from appending a system (a cycle or a contradicting pin), an
+    /// Returns the first error from appending a system (a cycle or a contradicting pin) or
+    /// passed to [`report_error`](Self::report_error), an
     /// invalid `GEARBOX_*` variable, a headless app's GPU failing to start or render, or an
     /// error from the event loop.
     pub fn run(mut self) -> anyhow::Result<()> {

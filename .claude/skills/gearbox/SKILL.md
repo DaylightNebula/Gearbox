@@ -20,6 +20,7 @@ skill disagrees with the code, trust the code.
 | --- | --- |
 | `../anarchy` | The ECS, used with its `glam` feature (`Reflect` for glam types). It has its own repo skill and user skills (`plugins/anarchy/skills`). Read those for ECS behaviour |
 | `../shader_magician` | `magician-vgpu` (GPU wrapper: `VirtualGpu`, `RenderFrame`, `SinglePass`, buffers, textures), `magician-rust` and `magician-macros` (Rust-to-WGSL shaders) |
+| `../Clarity` | Depends on gearbox (not the reverse): loads wasm modules into an `App` through `App::add_system_raw`. Changing `App`'s raw system or `report_error` API breaks it, so build it after such changes |
 
 A bug can live in a sibling. Fix it there, and build gearbox against it.
 

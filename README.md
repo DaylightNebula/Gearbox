@@ -279,6 +279,17 @@ impl Plugin for MyPlugin {
 Plugins are deduplicated by type: calling `add_plugin` twice with the same plugin type only
 builds it once.
 
+Systems built at runtime, which can't be told apart by their Rust type (such as ones loaded
+from wasm modules), go in with `add_system_raw(AppSchedule::Update, key, system, instruction,
+metadata)` under a `SystemKey` of your choosing. A plugin that fails while building can pass
+the error to `report_error`, and `run` returns it.
+
+### Wasm modules (Clarity)
+
+Clarity, a separate project in `../Clarity` (next to this repo), loads wasm modules into an
+app. Modules define their own components, resources, systems and plugins, and can use
+gearbox's `Transform`. See its README.
+
 ## Headless runs, screenshots and frame limits
 
 Any app can run without a window, stop after a set number of frames, and save frames as
