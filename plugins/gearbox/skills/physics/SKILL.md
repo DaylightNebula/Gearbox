@@ -56,7 +56,8 @@ fn setup(world: World) {
   position than the body could have moved in one tick (more than 0.5 units off). Small edits
   are overwritten.
 - Despawning the entity removes its body.
-- `set_collider`, `set_mass` and `set_fixed` take `&self` and rebuild the body next tick.
+- `set_collider`, `set_mass`, `set_fixed`, `set_friction` and `set_restitution` (`Option<f32>`,
+  `None` for rapier's default) take `&self` and rebuild the body next tick.
   `collider()`, `mass()`, `is_fixed()` and `last_snapshot()` (position, rotation and
   velocities after the last tick) read it.
 

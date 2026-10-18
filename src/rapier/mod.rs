@@ -156,7 +156,10 @@ fn update_engine_side(
                 continue;
             };
             let Some(collider) = collider else { object.using_empty_collider().store(true, Ordering::Release); continue };
-            let collider = collider.mass(*object.mass().get_ref()).build();
+            let mut collider = collider.mass(*object.mass().get_ref());
+            if let Some(friction) = *object.friction().get_ref() { collider = collider.friction(friction); }
+            if let Some(restitution) = *object.restitution().get_ref() { collider = collider.restitution(restitution); }
+            let collider = collider.build();
             object.using_empty_collider().store(false, Ordering::Release);
 
             engine.insert(*object.physics_id(), entity_id, collider, rigidbody);
@@ -286,6 +289,23 @@ mod tests {
         world.handle(entity).despawn();
         tick(&world, 1);
         assert!(!world.resource::<PhysicsEngine>().unwrap().has_character(id));
+    }
+
+    #[test]
+    fn friction_and_restitution_reach_the_collider() {
+        let world = world(1.0 / 60.0);
+        let ball = ball(&world);
+        {
+            let object = world.handle(ball).get::<&PhysicsObject>().unwrap().unwrap();
+            object.set_friction(Some(0.25));
+            object.set_restitution(Some(0.75));
+        }
+        tick(&world, 1);
+        let engine = world.resource::<PhysicsEngine>().unwrap();
+        let id = *world.handle(ball).get::<&PhysicsObject>().unwrap().unwrap().physics_id();
+        let handle = *engine.collider_map.get_by_left(&id).unwrap();
+        let collider = &engine.collider_set()[handle];
+        assert_eq!((collider.friction(), collider.restitution()), (0.25, 0.75));
     }
 
     #[test]

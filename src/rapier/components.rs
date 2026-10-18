@@ -35,6 +35,8 @@ use crate::rapier::{Collider, NEXT_PHYSICS_WORLD_ID, PhysicsWorldID, RigidBodySn
 ///   so no rigidbody/controller is created for it.
 /// - `mass`: The mass passed to rapier's collider builder.
 /// - `is_fixed`: Whether this object is a fixed (immovable) or dynamic rigidbody.
+/// - `friction` / `restitution`: The collider's friction and restitution
+///   coefficients, rapier's defaults when `None`.
 #[derive(Component, Getters)]
 #[getset(get = "pub")]
 pub struct PhysicsObject {
@@ -50,7 +52,9 @@ pub struct PhysicsObject {
     refresh_rapier: AtomicBool,
     using_empty_collider: AtomicBool,
     mass: CowData<f32>,
-    is_fixed: CowData<bool>
+    is_fixed: CowData<bool>,
+    friction: CowData<Option<f32>>,
+    restitution: CowData<Option<f32>>
 }
 
 impl std::fmt::Debug for PhysicsObject {
@@ -79,7 +83,9 @@ impl PhysicsObject {
             refresh_rapier: AtomicBool::new(false),
             using_empty_collider: AtomicBool::new(false),
             mass: CowData::new(mass),
-            is_fixed: CowData::new(true)
+            is_fixed: CowData::new(true),
+            friction: CowData::new(None),
+            restitution: CowData::new(None)
         }
     }
 
@@ -98,7 +104,9 @@ impl PhysicsObject {
             refresh_rapier: AtomicBool::new(false),
             using_empty_collider: AtomicBool::new(false),
             mass: CowData::new(mass),
-            is_fixed: CowData::new(false)
+            is_fixed: CowData::new(false),
+            friction: CowData::new(None),
+            restitution: CowData::new(None)
         }
     }
 
@@ -122,6 +130,18 @@ impl PhysicsObject {
     /// Sets whether this object is a fixed (immovable) or dynamic rigidbody.
     pub fn set_fixed(&self, fixed: bool) {
         self.is_fixed.set(fixed);
+        self.refresh_rapier_counterpart();
+    }
+
+    /// Sets the friction coefficient of the collider, `None` for rapier's default.
+    pub fn set_friction(&self, friction: Option<f32>) {
+        self.friction.set(friction);
+        self.refresh_rapier_counterpart();
+    }
+
+    /// Sets the restitution (bounciness) coefficient of the collider, `None` for rapier's default.
+    pub fn set_restitution(&self, restitution: Option<f32>) {
+        self.restitution.set(restitution);
         self.refresh_rapier_counterpart();
     }
 

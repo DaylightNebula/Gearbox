@@ -73,7 +73,8 @@ impl Collider {
                         };
                         let Some(shape) = shape else { return None };
                         let translation = Vector3::new(translation.x, translation.y, translation.z);
-                        let axisangle = Vector3::new(axisangle.0.x, axisangle.0.y, axisangle.0.z);
+                        let axisangle = axisangle.0 * axisangle.1;
+                        let axisangle = Vector3::new(axisangle.x, axisangle.y, axisangle.z);
                         Some((Isometry::new(translation, axisangle), shape))
                     })
                     .collect::<Vec<_>>();
@@ -124,7 +125,8 @@ impl Collider {
                         };
                         let Some(shape) = shape else { return None };
                         let translation = Vector3::new(translation.x, translation.y, translation.z);
-                        let axisangle = Vector3::new(axisangle.0.x, axisangle.0.y, axisangle.0.z);
+                        let axisangle = axisangle.0 * axisangle.1;
+                        let axisangle = Vector3::new(axisangle.x, axisangle.y, axisangle.z);
                         Some((Isometry::new(translation, axisangle), shape))
                     })
                     .collect::<Vec<_>>();
