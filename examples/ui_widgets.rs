@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use anarchy::{ResMut, Resource, World};
-use gearbox::{App, Camera, GearboxRenderPlugin, Transform, anyhow, spawn};
+use anarchy::{EntityBuilder, ResMut, Resource, World};
+use gearbox::{App, Camera, GearboxRenderPlugin, Transform, anyhow};
 use gearbox::ui::*;
 use magician_vgpu::glam::{self, Vec2};
 
@@ -32,10 +32,11 @@ fn main() -> anyhow::Result<()> {
 
 fn setup(world: World) {
     // the UI draws over the camera's render
-    spawn(&world, vec![
-        Box::new(Transform::new(glam::Vec3::new(0.0, 0.0, 6.0), glam::Quat::IDENTITY, glam::Vec3::ONE)),
-        Box::new(Camera::default()),
-    ]);
+    world.spawn(
+        EntityBuilder::new()
+            .push(Transform::new(glam::Vec3::new(0.0, 0.0, 6.0), glam::Quat::IDENTITY, glam::Vec3::ONE))
+            .push(Camera::default())
+    );
 }
 
 fn settings_ui(mut widget: ResMut<Widget>, mut settings: ResMut<Settings>) {

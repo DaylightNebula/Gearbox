@@ -271,17 +271,22 @@ mod tests {
 
     #[test]
     fn overrides_inherit_down_the_tree() {
-        use crate::ui::{Node, UiBundle, spawn_ui};
+        use crate::ui::{Node, UiBundle};
         let world = World::default();
         let (red, green, blue) = (Vec4::new(1.0, 0.0, 0.0, 1.0), Vec4::new(0.0, 1.0, 0.0, 1.0), Vec4::new(0.0, 0.0, 1.0, 1.0));
-        let root = spawn_ui(&world, UiBundle::new(Node::new())
-            .theme(ThemeOverride { accent: Some(red), panel: Some(red), ..Default::default() })
-            .children([
-                UiBundle::new(Node::new())
-                    .theme(ThemeOverride { accent: Some(green), text: Some(blue), ..Default::default() })
-                    .child(UiBundle::new(Node::new())),
-                UiBundle::new(Node::new()),
-            ]));
+
+        let root = world.spawn(
+            UiBundle::new(Node::new())
+                .theme(ThemeOverride { accent: Some(red), panel: Some(red), ..Default::default() })
+                .children([
+                    UiBundle::new(Node::new())
+                        .theme(ThemeOverride { accent: Some(green), text: Some(blue), ..Default::default() })
+                        .child(UiBundle::new(Node::new())),
+                    UiBundle::new(Node::new()),
+                ])
+                .into_entity_builder()
+        );
+
         let children = world.hierarchy().children(root).unwrap().to_vec();
         let grandchild = world.hierarchy().children(children[0]).unwrap()[0];
         let base = UiTheme::default();

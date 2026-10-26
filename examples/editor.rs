@@ -3,8 +3,8 @@
 //!
 //! Run with `cargo run --example editor --features editor`.
 
-use gearbox::anarchy::{Component, Query, Reflect, Res, World};
-use gearbox::{App, Graphics, spawn};
+use gearbox::anarchy::{EntityBuilder, Component, Query, Reflect, Res, World};
+use gearbox::{App, Graphics};
 use gearbox::{AssetContent, TextureType, GearboxRenderPlugin, LazyAssetVault, MaterialRef, MaterialVault, MeshRef, ShapeBuilder, SimpleTexturedMaterial, TextureVault, glam::*};
 use gearbox::{Camera, Transform};
 
@@ -36,22 +36,24 @@ fn startup(
     let material = materials.allocate(1).unwrap();
     materials.store(&world, material.clone(), Box::new(SimpleTexturedMaterial::new(texture)));
 
-    spawn(&world, vec![
-        Box::new(Transform::new(Vec3::new(0.0, 0.0, 8.0), Quat::IDENTITY, Vec3::ONE)),
-        Box::new(Camera::default()),
-    ]);
+    world.spawn(
+        EntityBuilder::new()
+            .push(Transform::new(Vec3::new(0.0, 0.0, 8.0), Quat::IDENTITY, Vec3::ONE))
+            .push(Camera::default())
+    );
 
     let shapes = [
         (ShapeBuilder::new().cube(Vec3::ZERO, Quat::IDENTITY, 1.0, 1.0, 1.0).build_mesh(&*graphics), Vec3::new(-1.5, 0.0, 0.0), 0.02),
         (ShapeBuilder::new().cylinder(Vec3::ZERO, Quat::IDENTITY, 0.5, 1.5).build_mesh(&*graphics), Vec3::new(1.5, 0.0, 0.0), 0.0),
     ];
     for (mesh, position, speed) in shapes {
-        spawn(&world, vec![
-            Box::new(Transform::new(position, Quat::IDENTITY, Vec3::ONE)),
-            Box::new(MaterialRef::new(material.clone())),
-            Box::new(MeshRef::new(mesh.unwrap())),
-            Box::new(Spin { speed, paused: false }),
-        ]);
+        world.spawn(
+            EntityBuilder::new()
+                .push(Transform::new(position, Quat::IDENTITY, Vec3::ONE))
+                .push(MaterialRef::new(material.clone()))
+                .push(MeshRef::new(mesh.unwrap()))
+                .push(Spin { speed, paused: false })
+        );
     }
 }
 

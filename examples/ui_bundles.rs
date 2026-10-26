@@ -6,15 +6,15 @@
 //! 4. starting from a themed bundle and tweaking it with `.style(..)`;
 //! 5. writing functions that return bundles, to reuse a piece of UI;
 //! 6. reserving ids with `reserve_id` and `.with_id(..)`, to know a part's entity before spawning;
-//! 7. spawning with `spawn_ui`, adding to a spawned tree with `spawn_ui_under`, finding entities
+//! 7. spawning with `into_entity_builder`, adding to a spawned tree with `add_child`, finding entities
 //!    with `find_named`, and removing them with `despawn_recursive`;
 //! 8. reacting to widget events and changing spawned components;
 //! 9. recoloring a tree's themed widgets with `.theme(ThemeOverride { .. })`.
 
 use std::sync::Arc;
 
-use anarchy::{Component, EntityID, Event, Query, Res, Resource, World};
-use gearbox::{App, Camera, GearboxRenderPlugin, Transform, anyhow, spawn};
+use anarchy::{EntityBuilder, Component, EntityID, Event, Query, Res, Resource, World};
+use gearbox::{App, Camera, GearboxRenderPlugin, Transform, anyhow};
 use gearbox::ui::{themed::{self, Label}, *};
 use magician_vgpu::glam::{self, Vec4};
 
@@ -56,8 +56,8 @@ fn main() -> anyhow::Result<()> {
 /// A reusable piece of UI is just a function returning a bundle. Each call reserves fresh ids
 /// for the row's checkbox and remove button, gives them to the parts with `.with_id(..)`, and
 /// keeps them in the row's `Task`, so the systems can go from a click straight to its row.
-fn task_row(world: &World, text: &str) -> UiBundle {
-    let (checkbox, remove) = (reserve_id(world), reserve_id(world));
+fn task_row(text: &str) -> UiBundle {
+    let (checkbox, remove) = (reserve_id(), reserve_id());
     UiBundle::new(Node::row().align(AlignItems::Center).gap(px(4.0)))
         .with(Task { checkbox, remove })
         .children([
@@ -83,10 +83,11 @@ fn badge() -> UiBundle {
 }
 
 fn setup(world: World) {
-    spawn(&world, vec![
-        Box::new(Transform::new(glam::Vec3::new(0.0, 0.0, 6.0), glam::Quat::IDENTITY, glam::Vec3::ONE)),
-        Box::new(Camera::default()),
-    ]);
+    world.spawn(
+        EntityBuilder::new()
+            .push(Transform::new(glam::Vec3::new(0.0, 0.0, 6.0), glam::Quat::IDENTITY, glam::Vec3::ONE))
+            .push(Camera::default())
+    );
 
     // a bar across the top of the window: a root anchored to the top edge, its children spread
     // out with `SpaceBetween`
@@ -125,12 +126,12 @@ fn setup(world: World) {
                 .named("list")
                 // rows spawned under the list later pick this up too, ticking in green
                 .theme(ThemeOverride { accent: Some(srgb(0x3FBF6F)), ..Default::default() })
-                .children(["Write the example", "Read the README", "Ship it"].map(|text| task_row(&world, text))),
+                .children(["Write the example", "Read the README", "Ship it"].map(task_row)),
             themed::caption("Tick a task when it's done, or press Enter to add one", Theme::default().dim),
         ]);
 
-    let toolbar = spawn_ui(&world, toolbar);
-    let card = spawn_ui(&world, card);
+    let toolbar = world.spawn(toolbar.into_entity_builder());
+    let card = world.spawn(card.into_entity_builder());
     let find = |root: EntityID, name: &str| find_named(&world, root, name).expect("a node the UI spawned");
     world.insert_resource(Ids {
         input: find(card, "input"),
@@ -152,8 +153,9 @@ fn add_tasks(world: World, ids: Res<Ids>, activated: Event<Activate>, submitted:
     // let go of the field before spawning, which locks other entities
     drop(field);
     if !text.trim().is_empty() {
-        // `spawn_ui_under` adds a bundle as the last child of a spawned node
-        spawn_ui_under(&world, ids.list, task_row(&world, text.trim()));
+        // spawn the row, then add it as the last child of the list
+        let row = world.spawn(task_row(text.trim()).into_entity_builder());
+        if let Err(err) = world.hierarchy().add_child(ids.list, row) { log::error!("Failed to add the row: {err:#}"); }
     }
 }
 

@@ -79,7 +79,7 @@ pub(crate) fn layout_entity_ui(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ui::{AlignItems, Anchor, JustifyContent, Rect, UIInputTracker, UINode, UiBundle, Val, find_named, layout_ui_nodes, px, spawn_ui};
+    use crate::ui::{AlignItems, Anchor, JustifyContent, Rect, UIInputTracker, UINode, UiBundle, Val, find_named, layout_ui_nodes, px};
 
     fn styles(world: &World) -> AHashMap<EntityID, Style> {
         let mut styles = AHashMap::new();
@@ -96,10 +96,12 @@ mod tests {
     #[test]
     fn spawns_children_in_order() {
         let world = World::default();
-        let root = spawn_ui(&world, UiBundle::new(Node::column()).children([
-            UiBundle::new(Node::new()).named("a"),
-            UiBundle::new(Node::new()).named("b").child(UiBundle::new(Node::new()).named("c")),
-        ]));
+        let root = world.spawn(
+            UiBundle::new(Node::column()).children([
+                UiBundle::new(Node::new()).named("a"),
+                UiBundle::new(Node::new()).named("b").child(UiBundle::new(Node::new()).named("c")),
+            ]).into_entity_builder()
+        );
         let (a, b, c) = (find_named(&world, root, "a").unwrap(), find_named(&world, root, "b").unwrap(), find_named(&world, root, "c").unwrap());
         assert_eq!(world.hierarchy().children(root).unwrap().to_vec(), vec![a, b]);
         assert_eq!(world.hierarchy().parent(c), Some(b));
@@ -110,11 +112,13 @@ mod tests {
     #[test]
     fn entities_lay_out_like_node_trees() {
         let world = World::default();
-        spawn_ui(&world, UiBundle::new(panel()).children([
-            UiBundle::new(Node::new().size(px(40.0), px(20.0))),
-            UiBundle::new(Node::new().width(px(60.0)).grow(1.0).height(Val::Percent(0.5))),
-            UiBundle::new(Node::new().size(px(10.0), px(30.0))),
-        ]));
+        world.spawn(
+            UiBundle::new(panel()).children([
+                UiBundle::new(Node::new().size(px(40.0), px(20.0))),
+                UiBundle::new(Node::new().width(px(60.0)).grow(1.0).height(Val::Percent(0.5))),
+                UiBundle::new(Node::new().size(px(10.0), px(30.0))),
+            ]).into_entity_builder()
+        );
         let roots = snapshot(&world, &mut styles(&world), 2.0);
         let entity = layout_tree(&roots, Vec2::ZERO, Vec2::new(800.0, 600.0), [800.0, 600.0], &mut |_, _| {});
 
@@ -134,8 +138,11 @@ mod tests {
     #[test]
     fn records_where_nodes_went() {
         let world = World::default();
-        let root = spawn_ui(&world, UiBundle::new(Node::new().size(px(100.0), px(50.0)).anchored(Anchor::BottomRight))
-            .child(UiBundle::new(Node::new().size(px(10.0), px(10.0))).named("child")));
+        let root = world.spawn(
+            UiBundle::new(Node::new().size(px(100.0), px(50.0)).anchored(Anchor::BottomRight))
+                .child(UiBundle::new(Node::new().size(px(10.0), px(10.0))).named("child"))
+                .into_entity_builder()
+        );
         let roots = snapshot(&world, &mut styles(&world), 1.0);
         let mut placed = vec![];
         layout_tree(&roots, Vec2::ZERO, Vec2::new(800.0, 600.0), [800.0, 600.0], &mut |node: &EntityNode, laid_out| placed.push((node.id, laid_out)));

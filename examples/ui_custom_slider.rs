@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use anarchy::{EntityID, Event, Query, Res, Resource, World};
-use gearbox::{App, Camera, GearboxRenderPlugin, Transform, anyhow, spawn};
+use anarchy::{EntityBuilder, EntityID, Event, Query, Res, Resource, World};
+use gearbox::{App, Camera, GearboxRenderPlugin, Transform, anyhow};
 use gearbox::ui::*;
 use magician_vgpu::glam::{self, Vec4};
 
@@ -24,10 +24,11 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn setup(world: World) {
-    spawn(&world, vec![
-        Box::new(Transform::new(glam::Vec3::new(0.0, 0.0, 6.0), glam::Quat::IDENTITY, glam::Vec3::ONE)),
-        Box::new(Camera::default()),
-    ]);
+    world.spawn(
+        EntityBuilder::new()
+            .push(Transform::new(glam::Vec3::new(0.0, 0.0, 6.0), glam::Quat::IDENTITY, glam::Vec3::ONE))
+            .push(Camera::default())
+    );
     let font = match SDFFont::new(include_bytes!("./LiberationSans-Regular.ttf")) {
         Ok(font) => Arc::new(font),
         Err(err) => return log::error!("Failed to load the font: {err:#}"),
@@ -45,7 +46,7 @@ fn setup(world: World) {
     let card = UiBundle::new(Node::column().anchored(Anchor::Center).padding(Rect::single(px(16.0))).gap(px(10.0))
         .background(Vec4::new(0.05, 0.05, 0.06, 1.0)).radius(px(8.0)))
         .children([label, track]);
-    let card = spawn_ui(&world, card);
+    let card = world.spawn(card.into_entity_builder());
     if let Some(label) = find_named(&world, card, "readout") {
         world.insert_resource(Readout { label, font });
     }

@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
-use anarchy::{Query, Res, ResMut, Resource, World};
-use gearbox::{App, EguiCtx, EguiPlugin, egui::egui, spawn};
+use anarchy::{EntityBuilder, Query, Res, ResMut, Resource, World};
+use gearbox::{App, EguiCtx, EguiPlugin, egui::egui};
 use gearbox::{AssetContent, AssetVault, LoadableAssetVault, MaterialRef, MeshRef, glam::*};
 use gearbox::{Camera, GearboxRenderPlugin, Transform};
 use gearbox::skeletal::anim::Animator;
@@ -28,10 +28,11 @@ fn setup(
     world: World,
     meshes: Res<SkeletalMeshVault>
 ) {
-    spawn(&world, vec![
-        Box::new(Transform::new(Vec3::new(0.0, 10.0, 30.0), Quat::from_rotation_x(-0.5), Vec3::ONE)),
-        Box::new(Camera::default()),
-    ]);
+    world.spawn(
+        EntityBuilder::new()
+            .push(Transform::new(Vec3::new(0.0, 10.0, 30.0), Quat::from_rotation_x(-0.5), Vec3::ONE))
+            .push(Camera::default())
+    );
     
     let Some(path) = get_path() else { return log::error!("No path provided") };
     let (model, material, anims) = match meshes.load(&world, AssetContent::LocalPath(path), SkeletalMeshLoadType::GLTF) {
@@ -41,12 +42,13 @@ fn setup(
     let mut animator = Animator::empty();
     animator.load_animations(anims);
 
-    spawn(&world, vec![
-        Box::new(Transform::new(Vec3::new(0.0, -1.0, 0.0), Quat::IDENTITY, Vec3::ONE * 3.0)),
-        Box::new(MaterialRef::new(material)),
-        Box::new(animator),
-        Box::new(MeshRef::new(model)),
-    ]);
+    world.spawn(
+        EntityBuilder::new()
+            .push(Transform::new(Vec3::new(0.0, -1.0, 0.0), Quat::IDENTITY, Vec3::ONE * 3.0))
+            .push(MaterialRef::new(material))
+            .push(animator)
+            .push(MeshRef::new(model))
+    );
 }
 
 #[cfg_attr(target_arch = "wasm32", allow(unused_variables))]

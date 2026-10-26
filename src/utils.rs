@@ -1,8 +1,4 @@
-use std::sync::atomic::{AtomicU64, Ordering};
-
-use anarchy::{DynComponent, EntityID, Resource, World};
 use derive_more::{Deref, DerefMut};
-use mutual::RelaxedMutex;
 
 /// ECS event wrapping a raw `winit::event::WindowEvent`. Sent into the `World` for every
 /// window event received by the event loop, so systems can react to input, resizes, etc. Read
@@ -15,25 +11,6 @@ pub struct WindowEvent(pub winit::event::WindowEvent);
 /// it with an `Event<DeviceEvent>` system parameter.
 #[derive(Debug, Clone, Deref, DerefMut)]
 pub struct DeviceEvent(pub winit::event::DeviceEvent);
-
-/// Resource handing out unique entity ids, see [`next_entity_id`].
-#[derive(Debug, Default, Resource)]
-pub struct NextEntityId(AtomicU64);
-
-/// Allocates an entity id no other caller of this function has received for `world`. `anarchy`
-/// never picks ids itself, so use this (or [`spawn`]) for every entity.
-pub fn next_entity_id(world: &World) -> EntityID {
-    world.init_resource_with(NextEntityId::default);
-    world.resource::<NextEntityId>().unwrap().0.fetch_add(1, Ordering::Relaxed)
-}
-
-/// Inserts an entity made of `components` under a fresh id from [`next_entity_id`] and returns
-/// that id. `components` must not be empty.
-pub fn spawn(world: &World, components: Vec<DynComponent>) -> EntityID {
-    let id = next_entity_id(world);
-    world.insert(id, components.into_iter().map(RelaxedMutex::new).collect());
-    id
-}
 
 /// The number of `run_async` futures that haven't finished, and a signal for when it changes.
 #[cfg(not(target_arch = "wasm32"))]

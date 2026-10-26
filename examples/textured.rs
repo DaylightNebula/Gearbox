@@ -1,5 +1,5 @@
-use gearbox::anarchy::{Query, Res, World};
-use gearbox::{App, Graphics, spawn};
+use gearbox::anarchy::{EntityBuilder, Query, Res, World};
+use gearbox::{App, Graphics};
 use gearbox::{AssetContent, BasicMesh, TextureType, Camera, GearboxRenderPlugin, LazyAssetVault, MaterialRef, MaterialVault, MeshRef, SimpleTexturedMaterial, TextureVault, Transform};
 use gearbox::magician_vgpu::{glam::{self, Quat}, rust::{Vec2, Vec3}};
 use gearbox::shaders::basic_vertex;
@@ -38,16 +38,18 @@ fn setup(
     let mat_handle = materials.allocate(1).unwrap();
     materials.store(&world, mat_handle.clone(), Box::new(SimpleTexturedMaterial::new(texture_handle)));
 
-    spawn(&world, vec![
-        Box::new(Transform::identity()),
-        Box::new(MaterialRef::new(mat_handle)),
-        Box::new(MeshRef::new(mesh)),
-    ]);
+    world.spawn(
+        EntityBuilder::new()
+            .push(Transform::identity())
+            .push(MaterialRef::new(mat_handle))
+            .push(MeshRef::new(mesh))
+    );
 
-    spawn(&world, vec![
-        Box::new(Transform::new(glam::Vec3::new(0.0, 0.0, 6.0), glam::Quat::IDENTITY, glam::Vec3::ONE)),
-        Box::new(Camera::default()),
-    ]);
+    world.spawn(
+        EntityBuilder::new()
+            .push(Transform::new(glam::Vec3::new(0.0, 0.0, 6.0), glam::Quat::IDENTITY, glam::Vec3::ONE))
+            .push(Camera::default())
+    );
 }
 
 fn update(

@@ -1,5 +1,5 @@
-use gearbox::anarchy::{Query, Res, World};
-use gearbox::{App, Graphics, spawn};
+use gearbox::anarchy::{EntityBuilder, Query, Res, World};
+use gearbox::{App, Graphics};
 use gearbox::{AssetContent, TextureType, GearboxRenderPlugin, Handle, LazyAssetVault, Material, MaterialRef, MaterialVault, MeshRef, ShapeBuilder, SimpleTexturedMaterial, TextureVault, glam::*};
 use gearbox::{Camera, Transform};
 
@@ -22,10 +22,11 @@ fn startup_triangle(
     let mat_handle = materials.allocate(1).unwrap();
     materials.store(&world, mat_handle.clone(), Box::new(SimpleTexturedMaterial::new(texture_handle)));
 
-    spawn(&world, vec![
-        Box::new(Transform::new(Vec3::new(0.0, 0.0, 12.0), Quat::IDENTITY, Vec3::ONE)),
-        Box::new(Camera::default()),
-    ]);
+    world.spawn(
+        EntityBuilder::new()
+            .push(Transform::new(Vec3::new(0.0, 0.0, 12.0), Quat::IDENTITY, Vec3::ONE))
+            .push(Camera::default())
+    );
 
     add_shape(
         &graphics,
@@ -79,11 +80,12 @@ fn add_shape(
     let mesh = builder
         .build_mesh(&*graphics)?;
 
-    spawn(world, vec![
-        Box::new(Transform::new(position, Quat::IDENTITY, Vec3::ONE)),
-        Box::new(MaterialRef::new(mat_handle)),
-        Box::new(MeshRef::new(mesh)),
-    ]);
+    world.spawn(
+        EntityBuilder::new()
+            .push(Transform::new(position, Quat::IDENTITY, Vec3::ONE))
+            .push(MaterialRef::new(mat_handle))
+            .push(MeshRef::new(mesh))
+    );
 
     Ok(())
 }

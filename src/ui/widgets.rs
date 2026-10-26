@@ -5,15 +5,15 @@
 use std::{ops::RangeInclusive, sync::Arc};
 
 use ahash::AHashMap;
-use anarchy::{EntityID, Res, ResMut, Resource, SystemPin, World, after, and, before, pin};
-use crate::{App, Graphics, Plugin, spawn};
+use anarchy::{EntityBuilder, EntityID, Res, ResMut, Resource, SystemPin, World, after, and, before, pin};
+use crate::{App, Graphics, Plugin};
 use magician_vgpu::glam::{Vec2, Vec4};
 use winit::{keyboard::Key, raw_window_handle::HasDisplayHandle};
 
 use crate::ui::{
     Align, AlignItems, Anchor, Background, JustifyContent, KeyOutcome, PositionType, Rect, RectCorners, SDFFont, Text,
     UiClipboard, UiInput, UiTheme, UiWidgetsPlugin, UINode, UINodeSDFRoot, Val, apply_key, layout_entity_ui, pick_ui,
-    read_ui_input, spawn_ui, themed::{restyle_themed, tooltip_window}, ui_render_pass,
+    read_ui_input, themed::{restyle_themed, tooltip_window}, ui_render_pass,
 };
 
 
@@ -1220,11 +1220,11 @@ fn setup_widgets(world: World, mut widget: ResMut<Widget>, graphics: Res<Graphic
     let clipboard = UiClipboard::new(display);
     widget.clipboard = clipboard.clone();
     world.insert_resource(clipboard);
-    widget.root = Some(spawn(&world, vec![Box::new(UINodeSDFRoot::default())]));
+    widget.root = Some(world.spawn(EntityBuilder::new().push(UINodeSDFRoot::default())));
 }
 
 /// Spawns the window themed widgets show their `Tooltip`s in.
-fn spawn_tooltip(world: World) { spawn_ui(&world, tooltip_window()); }
+fn spawn_tooltip(world: World) { world.spawn(tooltip_window().into_entity_builder()); }
 
 /// Takes this frame's input and theme, and hit tests the pointer against last frame's layout.
 fn widgets_begin(mut widget: ResMut<Widget>, mut input: ResMut<UiInput>, theme: Res<UiTheme>) {

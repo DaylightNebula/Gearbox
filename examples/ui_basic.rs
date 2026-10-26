@@ -3,8 +3,8 @@ use std::sync::Arc;
 use gearbox::{
     App, AssetContent, BasicMaterial, BasicMesh, Camera, GearboxRenderPlugin, Graphics,
     MaterialRef, MeshRef, TextureType, TextureVault, Transform,
-    anarchy::{Event, Query, Res, World},
-    anyhow, shaders::basic_vertex, spawn,
+    anarchy::{EntityBuilder, Event, Query, Res, World},
+    anyhow, shaders::basic_vertex,
 };
 use gearbox::ui::*;
 use magician_vgpu::{
@@ -54,16 +54,18 @@ fn build_scene(world: &World, graphics: &Graphics) -> anyhow::Result<()> {
 
     let mesh = BasicMesh::new(graphics, &vertices, &[0, 1, 2]);
 
-    spawn(world, vec![
-        Box::new(Transform::identity()),
-        Box::new(MaterialRef::new(BasicMaterial::new(glam::Vec4::new(0.1, 0.8, 0.2, 1.0)))),
-        Box::new(MeshRef::new(mesh)),
-    ]);
+    world.spawn(
+        EntityBuilder::new()
+            .push(Transform::identity())
+            .push(MaterialRef::new(BasicMaterial::new(glam::Vec4::new(0.1, 0.8, 0.2, 1.0))))
+            .push(MeshRef::new(mesh))
+    );
 
-    spawn(world, vec![
-        Box::new(Transform::new(glam::Vec3::new(0.0, 0.0, 6.0), glam::Quat::IDENTITY, glam::Vec3::ONE)),
-        Box::new(Camera::default()),
-    ]);
+    world.spawn(
+        EntityBuilder::new()
+            .push(Transform::new(glam::Vec3::new(0.0, 0.0, 6.0), glam::Quat::IDENTITY, glam::Vec3::ONE))
+            .push(Camera::default())
+    );
 
     let font_bytes = include_bytes!("./LiberationSans-Regular.ttf");
     let font = Arc::new(SDFFont::new(font_bytes)?);
@@ -117,7 +119,7 @@ fn build_scene(world: &World, graphics: &Graphics) -> anyhow::Result<()> {
     root.add(root_a);
     root.add(root_b);
 
-    spawn(world, vec![Box::new(UINodeSDFRoot(root))]);
+    world.spawn(EntityBuilder::new().push(UINodeSDFRoot(root)));
     Ok(())
 }
 

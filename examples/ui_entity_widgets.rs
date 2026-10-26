@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use anarchy::{EntityID, Event, Res, ResMut, Resource, World};
-use gearbox::{App, Camera, GearboxRenderPlugin, Transform, anyhow, spawn};
+use anarchy::{EntityBuilder, EntityID, Event, Res, ResMut, Resource, World};
+use gearbox::{App, Camera, GearboxRenderPlugin, Transform, anyhow};
 use gearbox::ui::{themed::{self, Label}, *};
 use magician_vgpu::glam::{self, Vec2};
 
@@ -44,10 +44,11 @@ fn main() -> anyhow::Result<()> {
 /// Spawns the windows once: the same ones `examples/widgets.rs` describes every frame.
 fn setup(world: World) {
     // the UI draws over the camera's render
-    spawn(&world, vec![
-        Box::new(Transform::new(glam::Vec3::new(0.0, 0.0, 6.0), glam::Quat::IDENTITY, glam::Vec3::ONE)),
-        Box::new(Camera::default()),
-    ]);
+    world.spawn(
+        EntityBuilder::new()
+            .push(Transform::new(glam::Vec3::new(0.0, 0.0, 6.0), glam::Quat::IDENTITY, glam::Vec3::ONE))
+            .push(Camera::default())
+    );
 
     let fruit = ["Apple", "Banana", "Cherry"].into_iter().enumerate().map(|(index, name)| themed::list_row(index, name));
     let veg = (1..=20).map(|n| themed::list_row(2 + n, format!("Veg {n}")));
@@ -72,13 +73,13 @@ fn setup(world: World) {
             themed::section("Vegetables", false, veg),
         ]).with(RadioGroup::default()).named("food"),
     ]);
-    let panel = spawn_ui(&world, panel);
+    let panel = world.spawn(panel.into_entity_builder());
 
     // popups draw over panels
     let popup = themed::frame(Some(180.0))
         .style(|node| node.absolute(Rect::new_top_left(px(120.0), px(200.0))).display(Display::None).z_index(1))
         .children([themed::label("Picked nothing").named("picked"), themed::button("Close").named("close")]);
-    let popup = spawn_ui(&world, popup);
+    let popup = world.spawn(popup.into_entity_builder());
 
     let find = |root: EntityID, name: &str| find_named(&world, root, name).expect("a widget the windows spawned");
     world.insert_resource(Ids {

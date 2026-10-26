@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use anarchy::World;
-use gearbox::{App, Camera, GearboxRenderPlugin, Transform, anyhow, spawn};
+use anarchy::{EntityBuilder, World};
+use gearbox::{App, Camera, GearboxRenderPlugin, Transform, anyhow};
 use gearbox::ui::*;
 use magician_vgpu::glam::{self, Vec4};
 
@@ -42,10 +42,11 @@ fn panel(color: Vec4) -> UINode {
 
 /// Builds the UI once: every root is anchored to part of the window.
 fn setup(world: World) {
-    spawn(&world, vec![
-        Box::new(Transform::new(glam::Vec3::new(0.0, 0.0, 6.0), glam::Quat::IDENTITY, glam::Vec3::ONE)),
-        Box::new(Camera::default()),
-    ]);
+    world.spawn(
+        EntityBuilder::new()
+            .push(Transform::new(glam::Vec3::new(0.0, 0.0, 6.0), glam::Quat::IDENTITY, glam::Vec3::ONE))
+            .push(Camera::default())
+    );
     let font = match SDFFont::new(include_bytes!("./LiberationSans-Regular.ttf")) {
         Ok(font) => Arc::new(font),
         Err(err) => return log::error!("Failed to load the font: {err:#}"),
@@ -120,6 +121,6 @@ fn setup(world: World) {
     badge.add(text(&font, "Anchored bottom right", 13.0));
 
     for root in [bar, sidebar, card, badge] {
-        spawn(&world, vec![Box::new(UINodeSDFRoot(root))]);
+        world.spawn(EntityBuilder::new().push(UINodeSDFRoot(root)));
     }
 }

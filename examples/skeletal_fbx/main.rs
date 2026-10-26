@@ -1,8 +1,8 @@
 // FBX loading uses ufbx, which is desktop-only, so this example does nothing on the web
 #![cfg_attr(target_arch = "wasm32", allow(unused_imports))]
 
-use anarchy::{Query, Res, World};
-use gearbox::{App, AssetContent, spawn, TextureType, BindlessArrayTextureVault, TextureHandle, Camera, GearboxRenderPlugin, LoadableAssetVault, MaterialRef, MeshRef, SimpleTexturedMaterial, Transform};
+use anarchy::{EntityBuilder, Query, Res, World};
+use gearbox::{App, AssetContent, TextureType, BindlessArrayTextureVault, TextureHandle, Camera, GearboxRenderPlugin, LoadableAssetVault, MaterialRef, MeshRef, SimpleTexturedMaterial, Transform};
 use magician_vgpu::glam::*;
 use gearbox::skeletal::anim::Animator;
 use gearbox::skeletal::{SkeletalMeshLoadType, SkeletalMeshPlugin, SkeletalMeshVault};
@@ -26,10 +26,11 @@ fn startup_triangle(
     meshes: Res<SkeletalMeshVault>,
     textures: Res<BindlessArrayTextureVault>
 ) {
-    spawn(&world, vec![
-        Box::new(Transform::new(Vec3::new(0.0, 10.0, 30.0), Quat::from_rotation_x(-0.5), Vec3::ONE)),
-        Box::new(Camera::default()),
-    ]);
+    world.spawn(
+        EntityBuilder::new()
+            .push(Transform::new(Vec3::new(0.0, 10.0, 30.0), Quat::from_rotation_x(-0.5), Vec3::ONE))
+            .push(Camera::default())
+    );
 
     for z in -1 .. 2 {
         let loaded = meshes.load(&world, AssetContent::LocalPath("./examples/skeletal_fbx/SK_Character_Alien_Male_01.fbx".into()), SkeletalMeshLoadType::FBX)
@@ -43,12 +44,13 @@ fn startup_triangle(
         let mut animator = Animator::empty();
         animator.load_animations(anims);
 
-        spawn(&world, vec![
-            Box::new(Transform::new(Vec3::new(z as f32 * 5.0, 0.0, 0.0), Quat::IDENTITY, Vec3::ONE * 0.025)),
-            Box::new(material),
-            Box::new(animator),
-            Box::new(MeshRef::new(model)),
-        ]);
+        world.spawn(
+            EntityBuilder::new()
+                .push(Transform::new(Vec3::new(z as f32 * 5.0, 0.0, 0.0), Quat::IDENTITY, Vec3::ONE * 0.025))
+                .push(material)
+                .push(animator)
+                .push(MeshRef::new(model))
+        );
     }
 }
 

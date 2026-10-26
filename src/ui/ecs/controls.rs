@@ -40,7 +40,6 @@ impl Checkbox {
 pub enum SliderScale {
     #[default]
     Linear,
-    /// Equal ratios take equal room, for ranges spanning magnitudes. Both ends must be positive.
     Log,
 }
 
@@ -51,7 +50,6 @@ pub struct Slider {
     pub value: f64,
     pub min: f64,
     pub max: f64,
-    /// Rounds values to multiples of it.
     pub step: Option<f64>,
     pub scale: SliderScale,
     pub disabled: bool,
@@ -103,10 +101,7 @@ pub struct RadioButton { pub index: usize }
 #[derive(Clone, Debug, Default, Component)]
 pub struct TextInput {
     pub text: String,
-    /// Shown while it's empty, by themed inputs.
     pub hint: String,
-    /// Starts each edit from an empty draft, keeping `text` until a non-empty one is handed
-    /// back, for fields editing a number.
     pub replace_on_focus: bool,
     pub disabled: bool,
     draft: Option<String>,
@@ -384,7 +379,7 @@ mod tests {
     use anarchy::{Resource, SingleThreadedExecutor, SystemGraph, SystemInstruction};
     use winit::keyboard::{Key, NamedKey};
 
-    use crate::ui::{UiBundle, spawn_ui};
+    use crate::ui::{UiBundle};
 
     /// Events the systems under test sent.
     #[derive(Debug, Default, Resource)]
@@ -411,7 +406,7 @@ mod tests {
         UiInput { released: true, hovered: Some(id), captured: Some(id), scale: 1.0, ..Default::default() }
     }
 
-    fn node(world: &World, bundle: UiBundle) -> EntityID { spawn_ui(world, bundle.interactive()) }
+    fn node(world: &World, bundle: UiBundle) -> EntityID { world.spawn(bundle.interactive().into_entity_builder()) }
 
     #[test]
     fn buttons_and_checkboxes_click() {
@@ -438,7 +433,7 @@ mod tests {
     fn radio_buttons_select_in_their_group() {
         let world = World::default();
         let options = (0..3).map(|index| UiBundle::new(Node::new()).with(RadioButton { index }).interactive());
-        let group = spawn_ui(&world, UiBundle::new(Node::new()).with(RadioGroup::default()).child(UiBundle::new(Node::row()).children(options)));
+        let group = world.spawn(UiBundle::new(Node::new()).with(RadioGroup::default()).child(UiBundle::new(Node::row()).children(options)).into_entity_builder());
         let row = world.hierarchy().children(group).unwrap()[0];
         let third = world.hierarchy().children(row).unwrap()[2];
         world.insert_resource(click(third));
@@ -482,8 +477,11 @@ mod tests {
     #[test]
     fn collapsibles_show_content_while_open() {
         let world = World::default();
-        let collapsible = spawn_ui(&world, UiBundle::new(Node::column()).with(Collapsible { open: false })
-            .children([UiBundle::new(Node::new()).interactive(), UiBundle::new(Node::new())]));
+        let collapsible = world.spawn(
+            UiBundle::new(Node::column()).with(Collapsible { open: false })
+                .children([UiBundle::new(Node::new()).interactive(), UiBundle::new(Node::new())])
+                .into_entity_builder()
+        );
         let [header, content] = world.hierarchy().children(collapsible).unwrap()[..] else { panic!() };
         let display = |world: &World| *world.handle(content).get::<&Node>().unwrap().unwrap().style().display();
         world.insert_resource(UiInput::default());
@@ -498,8 +496,11 @@ mod tests {
     #[test]
     fn drag_handles_move_their_parent() {
         let world = World::default();
-        let window = spawn_ui(&world, UiBundle::new(Node::new().absolute(Rect::new_top_left(Val::Px(10.0), Val::Px(20.0))))
-            .child(UiBundle::new(Node::new()).interactive().with(DragHandle::default())));
+        let window = world.spawn(
+            UiBundle::new(Node::new().absolute(Rect::new_top_left(Val::Px(10.0), Val::Px(20.0))))
+                .child(UiBundle::new(Node::new()).interactive().with(DragHandle::default()))
+                .into_entity_builder()
+        );
         let handle = world.hierarchy().children(window).unwrap()[0];
         world.insert_resource(UiInput { down: true, captured: Some(handle), delta: magician_vgpu::glam::Vec2::new(6.0, 4.0), scale: 2.0, ..Default::default() });
         run(&world, drag_handles);
@@ -512,11 +513,13 @@ mod tests {
     fn scrolling_hides_rows_and_empty_containers() {
         let world = World::default();
         let row = || UiBundle::new(Node::new()).with(ScrollItem);
-        let list = spawn_ui(&world, UiBundle::new(Node::column()).with(ScrollRows::new(2)).children([
-            UiBundle::new(Node::column()).children([row(), row()]),
-            UiBundle::new(Node::column()).children([row(), row()]),
-            UiBundle::new(Node::column().display(Display::None)).children([row()]),
-        ]));
+        let list = world.spawn(
+            UiBundle::new(Node::column()).with(ScrollRows::new(2)).children([
+                UiBundle::new(Node::column()).children([row(), row()]),
+                UiBundle::new(Node::column()).children([row(), row()]),
+                UiBundle::new(Node::column().display(Display::None)).children([row()]),
+            ]).into_entity_builder()
+        );
         let (mut rows, mut containers) = (vec![], vec![]);
         rows_under(&world, list, &mut rows, &mut containers);
         assert_eq!(rows.len(), 4);

@@ -1,9 +1,7 @@
 //! The components of entity nodes, and spawning trees of them.
 
-use anarchy::{Component, DynComponent, EntityID, World};
-use crate::next_entity_id;
+use anarchy::{Component, DynComponent, EntityBuilder, EntityID, World, next_entity_id};
 use magician_vgpu::glam::{Vec2, Vec4};
-use mutual::RelaxedMutex;
 
 use crate::ui::{
     AlignItems, Anchor, Background, Display, FlexWrap, Interaction, JustifyContent, PositionType, Rect, RectCorners,
@@ -134,6 +132,7 @@ pub struct UiBundle {
 }
 
 impl UiBundle {
+    /// Create a new UI bundle with a given `Node`.
     pub fn new(node: Node) -> Self { Self { node, components: vec![], children: vec![], id: None } }
 
     /// Spawns `component` on the node too.
@@ -142,14 +141,17 @@ impl UiBundle {
     /// Makes the node pickable, see `Interaction`.
     pub fn interactive(self) -> Self { self.with(Interaction::None) }
 
+    /// Apply the given name to this bundle.
     pub fn named(self, name: impl Into<String>) -> Self { self.with(Name(name.into())) }
 
     /// Draws the node and everything below it with `theme`'s changes to the `UiTheme`, see
     /// `ThemeOverride`.
     pub fn theme(self, theme: ThemeOverride) -> Self { self.with(theme) }
 
+    /// Add a child to the children of this bundle.
     pub fn child(mut self, child: UiBundle) -> Self { self.children.push(child); self }
 
+    /// Append an iterator of children to this bundle.
     pub fn children(mut self, children: impl IntoIterator<Item = UiBundle>) -> Self { self.children.extend(children); self }
 
     /// Spawns the node under `id`, for widgets that need their parts' ids before spawning.
@@ -157,28 +159,39 @@ impl UiBundle {
 
     /// Changes the node's layout and look.
     pub fn style(mut self, change: impl FnOnce(Node) -> Node) -> Self { self.node = change(self.node); self }
+
+    /// Convert this bundle to an `EntityBuilder`.
+    pub fn into_entity_builder(self) -> EntityBuilder {
+        let id = self.id.unwrap_or_else(|| next_entity_id());
+        let builder = EntityBuilder::with_id_and_capacity(id, 2)
+            .push(self.node)
+            .push(ComputedNode::default())
+            .extend(self.components.into_iter())
+            .extend_children(self.children.into_iter().map(|child| child.into_entity_builder()));
+        return builder;
+    }
 }
 
-/// Spawns `bundle` and its children, returning the root's id.
-pub fn spawn_ui(world: &World, bundle: UiBundle) -> EntityID {
-    let UiBundle { node, mut components, children, id } = bundle;
-    let id = id.unwrap_or_else(|| next_entity_id(world));
-    components.push(Box::new(node));
-    components.push(Box::new(ComputedNode::default()));
-    world.insert(id, components.into_iter().map(RelaxedMutex::new).collect());
-    for child in children { spawn_ui_under(world, id, child); }
-    id
-}
-
-/// Spawns `bundle` as the last child of `parent`, returning its id.
-pub fn spawn_ui_under(world: &World, parent: EntityID, bundle: UiBundle) -> EntityID {
-    let id = spawn_ui(world, bundle);
-    if let Err(err) = world.hierarchy().add_child(parent, id) { log::error!("Failed to parent a UI node: {err:#}"); }
-    id
-}
+// /// Spawns `bundle` and its children, returning the root's id.
+// pub fn spawn_ui(world: &World, bundle: UiBundle) -> EntityID {
+//     let UiBundle { node, mut components, children, id } = bundle;
+//     let id = id.unwrap_or_else(|| next_entity_id());
+//     components.push(Box::new(node));
+//     components.push(Box::new(ComputedNode::default()));
+//     world.insert(id, components.into_iter().map(RelaxedMutex::new).collect());
+//     for child in children { spawn_ui_under(world, id, child); }
+//     id
+// }
+//
+// /// Spawns `bundle` as the last child of `parent`, returning its id.
+// pub fn spawn_ui_under(world: &World, parent: EntityID, bundle: UiBundle) -> EntityID {
+//     let id = spawn_ui(world, bundle);
+//     if let Err(err) = world.hierarchy().add_child(parent, id) { log::error!("Failed to parent a UI node: {err:#}"); }
+//     id
+// }
 
 /// Allocates an id for an entity spawned later, see `UiBundle::with_id`.
-pub fn reserve_id(world: &World) -> EntityID { next_entity_id(world) }
+pub fn reserve_id() -> EntityID { next_entity_id() }
 
 /// The first entity under `root`, or `root` itself, with the `Name` `name`.
 pub fn find_named(world: &World, root: EntityID, name: &str) -> Option<EntityID> {
