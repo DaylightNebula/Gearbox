@@ -276,17 +276,19 @@ fn init_resources(
     // pick the texture backend: a true bindless array where supported, falling back to a
     // single shared atlas texture (see crate::TextureVault) elsewhere -- both the group 1
     // bind group layout and the fragment shader's texture-sampling code depend on which
+    // the sample runs inside the shape tree walk's loop, so it takes an explicit mip level
+    // (textures have only one): FXC on dx12 can't compile implicit-gradient samples there
     let bindless = *graphics.supports_bindless_arrays();
     let (texture_group_src, sample_body_src, group1_layout) = if bindless {
         (
             "@group(1) @binding(0) var ui_textures: binding_array<texture_2d<f32>>;\n@group(1) @binding(1) var ui_sampler: sampler;",
-            "return textureSample(ui_textures[ptr], ui_sampler, local_uv);",
+            "return textureSampleLevel(ui_textures[ptr], ui_sampler, local_uv, 0.0);",
             bindless_vault.bind_group_layout(&*graphics),
         )
     } else {
         (
             "@group(1) @binding(0) var ui_atlas_page: texture_2d<f32>;\n@group(1) @binding(1) var<uniform> ui_atlas_size: vec4<f32>;\n@group(1) @binding(2) var ui_sampler: sampler;",
-            "let rect = texture_rects[ptr].rect;\n    let atlas_uv = (rect.xy + local_uv * rect.zw) / ui_atlas_size.xy;\n    return textureSample(ui_atlas_page, ui_sampler, atlas_uv);",
+            "let rect = texture_rects[ptr].rect;\n    let atlas_uv = (rect.xy + local_uv * rect.zw) / ui_atlas_size.xy;\n    return textureSampleLevel(ui_atlas_page, ui_sampler, atlas_uv, 0.0);",
             atlas_vault.bind_group_layout(&*graphics),
         )
     };
