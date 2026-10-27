@@ -56,9 +56,9 @@ fn main() -> gearbox::anyhow::Result<()> {
 - `run` blocks until the window closes. It returns an error if appending a system failed
   (a cycle or a contradictory pin), or if the event loop fails.
 
-## The four graphs
+## The five graphs
 
-An `App` owns four anarchy `SystemGraph`s:
+An `App` owns five anarchy `SystemGraph`s:
 
 | Builder method | Runs | Thread |
 | --- | --- | --- |
@@ -66,6 +66,7 @@ An `App` owns four anarchy `SystemGraph`s:
 | `on_update` | `UpdateRate` times per second (default 60) | the update thread, on `with_update_threads` threads (default 4) |
 | `on_render_startup` | once, before the first frame, after `Graphics` exists | the event loop thread |
 | `on_render_update` | once per frame | the event loop thread |
+| `on_resume` | every time the app resumes: at launch, and after each suspension (Android, iOS) or back/forward cache restore (web) | the event loop thread |
 
 - **GPU work goes in render systems.** `Graphics` (the `VirtualGpu`: `device()`,
   `queue()`, `config()`, `window()`) is inserted once the window exists. Startup and

@@ -5,7 +5,7 @@ use winit::{
     application::ApplicationHandler,
     event::StartCause,
     event_loop::{ActiveEventLoop, ControlFlow},
-    window::{Window, WindowId},
+    window::WindowId
 };
 
 use crate::{App, DeviceEvent, Pacer, RenderRate, WindowEvent};
@@ -64,8 +64,6 @@ impl ApplicationHandler<()> for AppWrapper {
     }
 
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        #[allow(unused_mut)]
-        let mut window_attributes = Window::default_attributes();
 
         #[cfg(target_arch = "wasm32")]
         {
@@ -81,7 +79,7 @@ impl ApplicationHandler<()> for AppWrapper {
             window_attributes = window_attributes.with_canvas(Some(html_canvas_element));
         }
 
-        let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
+        let window = Arc::new(event_loop.create_window(self.app.window_attributes.clone()).unwrap());
 
         #[cfg(not(target_arch = "wasm32"))]
         {
@@ -120,6 +118,8 @@ impl ApplicationHandler<()> for AppWrapper {
                 crate::app::configure_surface(&world, size.width, size.height);
             });
         }
+
+        self.app.resume();
     }
 
     fn exiting(&mut self, _event_loop: &ActiveEventLoop) {

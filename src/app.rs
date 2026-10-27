@@ -5,10 +5,9 @@ use std::{any::TypeId, collections::HashSet, path::PathBuf, sync::{Arc, atomic::
 
 use anarchy::{ErasedSystem, IntoSystem, Res, Resource, SingleThreadedExecutor, SystemGraph, SystemInstruction, SystemKey, SystemMeta, World};
 use derive_more::{Deref, DerefMut};
-use ::egui::Window;
 use magician_vgpu::{RenderFrame, glam::UVec2};
 use web_time::Instant;
-use winit::event_loop::EventLoop;
+use winit::{event_loop::EventLoop, window::{Window, WindowAttributes}};
 
 use crate::{DEFAULT_FIXED_TIMESTEP, DEFAULT_SCREENSHOT_FRAME, EguiCtx, EnvOptions, ErrorLog, Frame, FrameCount, Graphics, Pacer, Plugin, RenderDeltaTime, RenderRate, Screenshots, UpdateDeltaTime, UpdateRate, save_capture};
 
@@ -17,7 +16,7 @@ use crate::{DEFAULT_FIXED_TIMESTEP, DEFAULT_SCREENSHOT_FRAME, EguiCtx, EnvOption
 #[derive(Debug, Deref, DerefMut, Resource)]
 pub struct WindowDimensions(UVec2);
 
-/// One of the four [`SystemGraph`]s an [`App`] runs, see [`App::add_system_raw`].
+/// One of the [`SystemGraph`]s an [`App`] runs, see [`App::add_system_raw`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum AppSchedule {
     /// Runs once before the first update, like [`App::on_startup`].
@@ -27,16 +26,19 @@ pub enum AppSchedule {
     /// Runs once before the first render frame, like [`App::on_render_startup`].
     RenderStartup,
     /// Runs every render frame, like [`App::on_render_update`].
-    Render
+    Render,
+    /// Runs every time the app is resumed, like [`App::on_resume`].
+    Resume
 }
 
 /// Builder for a `winit`/`wgpu` application backed by an `anarchy` ECS `World`.
 ///
-/// An `App` owns four [`SystemGraph`]s: a startup and an update graph for the primary
+/// An `App` owns five [`SystemGraph`]s: a startup and an update graph for the primary
 /// schedule (ticked at [`UpdateRate`], independent of rendering, on its own threads natively),
 /// and a startup and an update graph for the render schedule (run once per `RedrawRequested`
 /// on the event loop thread). Startup graphs run once before the first pass of their
-/// schedule; render startup waits until [`Graphics`] exists. Plugins, resources, and systems
+/// schedule; render startup waits until [`Graphics`] exists. A resume graph runs on the
+/// event loop thread every time the app is resumed. Plugins, resources, and systems
 /// are attached via the builder methods below, then [`App::run`] hands control to the `winit`
 /// event loop.
 ///
@@ -54,6 +56,8 @@ pub struct App {
     render_startup: SystemGraph,
     /// Runs every render frame.
     render: SystemGraph,
+    /// Runs on the event loop thread every time the app is resumed.
+    resume: SystemGraph,
     render_exec: SingleThreadedExecutor,
     /// Whether `render_startup` has run.
     render_started: bool,
@@ -80,6 +84,9 @@ pub struct App {
     pub(crate) vsync: bool,
     /// Start time of the previous frame, used for [`RenderDeltaTime`].
     last_render: Option<Instant>,
+    /// The attributes that will be used when spawning this apps window.
+    pub(crate) window_attributes: WindowAttributes,
+    /// The world used by `App`.
     pub(crate) world: World
 }
 
@@ -95,6 +102,7 @@ impl App {
             update: SystemGraph::new(),
             render_startup: SystemGraph::new(),
             render: SystemGraph::new(),
+            resume: SystemGraph::new(),
             render_exec: SingleThreadedExecutor::new(),
             render_started: false,
             render_errors: ErrorLog::default(),
@@ -110,6 +118,7 @@ impl App {
             build_error: None,
             vsync: false,
             last_render: None,
+            window_attributes: Window::default_attributes(),
             world: World::default()
         };
 
@@ -150,6 +159,14 @@ impl App {
     pub fn add_plugin<P: Plugin + 'static>(mut self, plugin: P) -> Self {
         if !self.added_plugins.insert(TypeId::of::<P>()) { return self }
         return plugin.build(self);
+    }
+
+    /// Modify the window attributes that will be used by this app when `run` is called.
+    pub fn with_window_attributes<F>(mut self, func: F) -> Self
+        where F: FnOnce(WindowAttributes) -> WindowAttributes
+    {
+        self.window_attributes = func(self.window_attributes);
+        return self;
     }
 
     /// Run the update graph `rate` times per second, 0 runs it as fast as possible (default 60).
@@ -275,6 +292,23 @@ impl App {
         self.record(result)
     }
 
+    /// Add a system to run every time the app is resumed: once at launch, then again after
+    /// each suspension (on Android and iOS) or back/forward cache restore (on web). Runs on the
+    /// event loop thread. Natively [`Graphics`] exists by then, on web it may not yet.
+    pub fn on_resume<S, M>(self, system: S) -> Self
+        where S: IntoSystem<(), (), M> + 'static
+    {
+        self.on_resume_with(system, SystemInstruction::default())
+    }
+
+    /// Add a system to run every time the app is resumed, ordered by `instruction`.
+    pub fn on_resume_with<S, M>(mut self, system: S, instruction: SystemInstruction) -> Self
+        where S: IntoSystem<(), (), M> + 'static
+    {
+        let result = self.resume.append_system(system, instruction, std::iter::empty());
+        self.record(result)
+    }
+
     /// Add an already erased system to `schedule` under `key`, tagged with `metadata`. For
     /// systems built at runtime (such as ones loaded from scripts or wasm modules), which
     /// can't be told apart by their Rust type. A system already under `key` is replaced.
@@ -291,6 +325,7 @@ impl App {
             AppSchedule::Update => &mut self.update,
             AppSchedule::RenderStartup => &mut self.render_startup,
             AppSchedule::Render => &mut self.render,
+            AppSchedule::Resume => &mut self.resume,
         };
         let result = graph.append_raw(key, system, instruction, metadata.into_iter());
         self.record(result)
@@ -476,6 +511,12 @@ impl App {
     }
 
     /// Reconfigure the GPU surface and [`WindowDimensions`] resource after a window resize.
+    /// Run the resume graph, called whenever the event loop resumes.
+    pub(crate) fn resume(&mut self) {
+        let result = self.render_exec.run(&self.world, &self.resume);
+        self.render_errors.report("Resume", result);
+    }
+
     pub(crate) fn resize(&mut self, width: u32, height: u32) {
         configure_surface(&self.world, width, height);
     }
@@ -587,7 +628,7 @@ fn dbg_schedules(
     update: Res<UpdateDeltaTime>,
     render: Res<RenderDeltaTime>
 ) {
-    Window::new("Schedules Debug").show(&egui.context, |ui| {
+    ::egui::Window::new("Schedules Debug").show(&egui.context, |ui| {
         ui.label("FPS Counters");
         ui.label(format!(" - Update -> {} FPS", 1.0 / update.0));
         ui.label(format!(" - Render -> {} FPS", 1.0 / render.0));
