@@ -12,7 +12,7 @@ use taffy::{
 
 use crate::ui::{
     AlignContent, AlignItems, Anchor, Background, Display, FlexDirection, FlexWrap, Interaction,
-    JustifyContent, LastState, PositionType, Rect, SDFElement, SDFFont, SDFRectangle, SDFShape,
+    JustifyContent, LastState, Outline, PositionType, Rect, SDFElement, SDFFont, SDFRectangle, SDFShape,
     SDFStyle, Style, Text, UIInputTracker, UINode, Val,
     nodes::Align,
 };
@@ -357,18 +357,20 @@ impl <T: LayoutTree> Emit<'_, T> {
             .filter_map(|(child, built)| self.element(child, built, top_left))
             .collect();
 
+        // the content box's distance in from each edge: top, bottom, left, right
+        let insets = [
+            padding.top + border.top,
+            padding.bottom + border.bottom,
+            padding.left + border.left,
+            padding.right + border.right,
+        ];
         if let Some(text) = style.text() {
-            let insets = [
-                padding.top + border.top,
-                padding.bottom + border.bottom,
-                padding.left + border.left,
-                padding.right + border.right,
-            ];
             children.extend(build_text_element(text, insets, top_left, dimensions));
         }
 
         let shape = match style.background() {
             Background::Empty => SDFShape::Empty,
+            Background::Shape(outline, _) => shape_in_content_box(outline, dimensions, insets),
             _ => SDFShape::Rectangle(SDFRectangle { radii: radii(style, dimensions, self.display_size) }),
         };
         Some(SDFElement {
@@ -407,6 +409,7 @@ fn background_to_style(style: &Style, border_width: f32) -> SDFStyle {
         Background::Empty => (TRANSPARENT, None),
         Background::Color(c) => (*c, None),
         Background::Image(h) => (Vec4::ONE, Some(h.clone())),
+        Background::Shape(_, c) => (*c, None),
     };
     SDFStyle {
         primary_color,
@@ -414,6 +417,15 @@ fn background_to_style(style: &Style, border_width: f32) -> SDFStyle {
         border_width,
         texture,
     }
+}
+
+/// `outline` stretched over the content box of an element `dimensions` big, `insets` (top,
+/// bottom, left, right) in from its edges.
+fn shape_in_content_box(outline: &Outline, dimensions: Vec2, insets: [f32; 4]) -> SDFShape {
+    let [top, bottom, left, right] = insets;
+    let size = (dimensions - Vec2::new(left + right, top + bottom)).max(Vec2::ZERO);
+    let offset = Vec2::new(left - right, top - bottom) / 2.0;
+    SDFShape::Glyph(outline.placed(size, offset))
 }
 
 /// The glyphs of `text` placed in the box at `top_left` sized `dimensions`, `insets` (top,
@@ -535,6 +547,21 @@ mod tests {
         node.add(UINode::default());
         let elements = layout(&[node]);
         assert_eq!(bounds(&elements[0].children[0]), (Vec2::splat(10.0), Vec2::new(80.0, 0.0)));
+    }
+
+    #[test]
+    fn shape_fills_the_content_box() {
+        let triangle = Outline::builder().polygon(&[Vec2::new(-0.5, -0.5), Vec2::new(0.5, 0.0), Vec2::new(-0.5, 0.5)]).build();
+        let mut node = sized(100.0, 60.0);
+        node.set_padding(Rect::new(Val::Px(10.0), Val::Px(10.0), Val::Px(20.0), Val::Px(0.0)));
+        node.set_background(Background::Shape(triangle, Vec4::ONE));
+        let elements = layout(&[node]);
+        let SDFShape::Glyph(curves) = &elements[0].shape else { panic!("expected a glyph, got {:?}", elements[0].shape) };
+        assert_eq!(elements[0].style.primary_color, Vec4::ONE);
+        // the 80x40 content box is centered 10px right of the node's center
+        assert_eq!(curves[0].a_offset, Vec2::new(-30.0, -20.0));
+        assert_eq!(curves[0].c_offset, Vec2::new(50.0, 0.0));
+        assert_eq!(curves[1].c_offset, Vec2::new(-30.0, 20.0));
     }
 
     #[test]

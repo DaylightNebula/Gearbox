@@ -8,7 +8,7 @@ use magician_vgpu::glam::{Vec2, Vec4};
 use mutual::{CowData, RefCowData, SharedData};
 
 use crate::ui::{
-    SDFFont, UINodeEndHoverEvent, UINodePressedEvent, UINodeReleasedEvent, UINodeStartHoverEvent,
+    Outline, SDFFont, UINodeEndHoverEvent, UINodePressedEvent, UINodeReleasedEvent, UINodeStartHoverEvent,
 };
 
 /// Called with a node's new interaction whenever it changes.
@@ -450,6 +450,8 @@ pub enum Background {
     Empty,
     Color(Vec4),
     Image(TextureHandle),
+    /// `Outline` filled in the color, stretched over the content box, inside the padding.
+    Shape(Outline, Vec4),
 }
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, PartialOrd)]

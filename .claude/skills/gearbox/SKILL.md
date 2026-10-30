@@ -139,11 +139,11 @@ behavior-only and themed widgets), and immediate mode (`Widget`/`Ui`).
 | Path | What lives there |
 | --- | --- |
 | `mod.rs` | `UIPlugin` (resources and system ordering), GPU setup (`init_resources`), `ui_render_pass` (merges entity elements, `UINodeSDFRoot` trees and `UIRawElements`, uploads and draws) |
-| `nodes/data.rs`, `nodes/render.rs` | `UINode`, `Style`, `Val`, `Anchor`, `Text`; layout (`layout_tree` builds a taffy tree and emits `SDFElement`s in paint order). Layout tests |
+| `nodes/data.rs`, `nodes/render.rs`, `nodes/outline.rs` | `UINode`, `Style`, `Val`, `Anchor`, `Text`, `Background`; layout (`layout_tree` builds a taffy tree and emits `SDFElement`s in paint order); `Outline`, the vector shapes `Background::Shape` draws as `SDFShape::Glyph`. Layout and outline tests |
 | `data.rs`, `shader.rs`, `shaders/*.wgsl` | `SDFElement`/`SDFShape`/`SDFStyle`, their GPU layouts, and the WGSL (`include_str!`'d) |
 | `fonts/` | `SDFFont`: text measuring, glyphs as bezier SDFs |
 | `widgets.rs` | Immediate mode (`WidgetPlugin`, `Widget`, `Ui`), `Theme`, `srgb`, and the size constants themed widgets share |
-| `ecs/` | Entity UI: `node.rs` (`Node`, `UiBundle`, `spawn_ui`), `layout.rs`, `picking.rs`, `input.rs` (`UiInput`, `UiFocus`, `UiTheme`, `ThemeOverride`), `controls.rs` (behavior-only widgets, system tests), `themed.rs` (`themed::` builders, `restyle_themed`) |
+| `ecs/` | Entity UI: `node.rs` (`Node`, `UiBundle`, `into_entity_builder`), `layout.rs`, `picking.rs`, `input.rs` (`UiInput`, `UiFocus`, `UiTheme`, `ThemeOverride`), `controls.rs` (behavior-only widgets, system tests), `themed.rs` (`themed::` builders, `restyle_themed`) |
 
 Frame order, by render pin:
 1. **`Start`:** `read_ui_input` fills `UiInput`; `widgets_begin` hit tests last frame's
@@ -153,6 +153,8 @@ Frame order, by render pin:
    (entity elements first, then node trees, so immediate windows draw on top).
 
 UI gotchas:
+- **`UiBundle`s first.** User docs and examples steer retained UI to hand-built `UiBundle`s;
+  `themed::` is for the immediate mode look. Write new examples and skill snippets that way.
 - **Parity.** `ui_entity_widgets` and `ui_widgets` must render identical pixels. When a widget
   changes, change both `Ui` and its `themed::` builder or restyle arm, then diff screenshots of
   the two with `python3 -I scripts/pngdiff.py a.png b.png`. Themed parts are found by child

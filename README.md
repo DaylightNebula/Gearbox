@@ -178,7 +178,8 @@ See `examples/editor.rs` (`cargo run --example editor --features editor`).
 
 ### UI
 
-`ui` draws UI as signed distance fields (rectangles, circles, bezier strokes and font glyphs)
+`ui` draws UI as signed distance fields (rectangles, circles, bezier strokes, font glyphs and
+vector shapes)
 in a single fullscreen pass over the scene, laid out like CSS flexbox with
 [taffy](https://github.com/DioxusLabs/taffy). It offers three ways to build UI, all from
 `UIPlugin`:
@@ -186,9 +187,12 @@ in a single fullscreen pass over the scene, laid out like CSS flexbox with
 - **Node trees:** a `UINodeSDFRoot(UINode)` component holding a tree of `UINode`s styled with
   `Style` (sizes as `Val`, margin/padding/border, flex row/column/grid, `Anchor`s, absolute
   positioning, text through `SDFFont`).
-- **Entity widgets:** every node is an entity with a `Node` component, built with `UiBundle`
-  and `spawn_ui`. Behavior-only widgets (`Button`, `Checkbox`, `Slider`, `TextInput`, ...)
-  send `Activate`/`ValueChange`/`Submit` events, and `themed::` builders spawn them styled.
+- **Entity widgets:** every node is an entity with a `Node` component, built as a `UiBundle`
+  and spawned with `world.spawn(bundle.into_entity_builder())`. Behavior-only widgets
+  (`Button`, `Checkbox`, `Slider`, `TextInput`, ...) send `Activate`/`ValueChange`/`Submit`
+  events, and `Node::shape` draws vector icons. **Prefer building your own `UiBundle`s for
+  retained UI**; the `themed::` builders give the immediate mode look and suit tools and debug
+  panels.
 - **Immediate mode widgets:** with `WidgetPlugin`, describe windows every frame through the
   `Widget` resource.
 
@@ -355,7 +359,7 @@ claude plugin install gearbox@gearbox
 | `gearbox:app` | Setup, the `App` and its graphs, systems and ordering, rates and delta time, entities, events, plugins, background work, egui and the web |
 | `gearbox:rendering` | `GearboxRenderPlugin`, cameras and transforms, meshes, materials, textures, drawing in the main pass and custom materials or meshes |
 | `gearbox:ui-layout` | `UIPlugin`, `Style` and flexbox, `Val` sizes, the box model, anchors and absolute positioning, text, colors, and `UINodeSDFRoot` trees with their events |
-| `gearbox:ui-entity-widgets` | Entity nodes and `UiBundle`, behavior-only widgets and their events, `themed::` builders, theming and `ThemeOverride`, frame order |
+| `gearbox:ui-entity-widgets` | Entity nodes built as `UiBundle`s (preferred for retained UI), shapes and icons, behavior-only widgets and their events, hover styling, `themed::` builders, theming and `ThemeOverride`, frame order |
 | `gearbox:ui-immediate-widgets` | The `Widget` resource and `Ui` builder, windows, ids and state, theme and input |
 | `gearbox:skeletal` | Loading skinned glTF/FBX models, `Animator`, hiding sub-meshes |
 | `gearbox:physics` | `PhysicsPlugin`, `PhysicsObject` and `Collider`, forces, characters, raycasts and shape casts |
@@ -372,6 +376,6 @@ cargo run --example basic
 cargo run --example shapes
 cargo run --example textured
 cargo run --example editor --features editor
-cargo run --example ui_widgets          # also ui_basic, ui_layout, ui_bundles, ui_entity_widgets, ui_custom_slider
+cargo run --example ui_widgets          # also ui_basic, ui_layout, ui_bundles, ui_entity_widgets, ui_custom_slider, ui_shapes
 cargo run --example skeletal_viewer --features skeletal -- path/to/model.glb
 ```

@@ -1,6 +1,6 @@
 ---
 name: ui-entity-widgets
-description: Use when building retained, Bevy-style UI with gearbox's ui module (gearbox::ui) - entity UI nodes (Node, UiBundle, spawn_ui, spawn_ui_under, find_named, reserve_id/with_id, despawning), behavior-only widget components (Button, Checkbox, Slider, RadioGroup/RadioButton, TextInput, Collapsible, ScrollRows, DragHandle, Tooltip) and their events (Activate, ValueChange, Submit), the ready-styled themed:: builders (panel, button, slider, text_input, section, scroll_rows, ...), themed::Label text, styling your own widgets, UiTheme/Theme colors and per-tree ThemeOverride, and UiInput for pointer and keyboard state. For Style and layout see the gearbox ui-layout skill.
+description: Use when building retained, Bevy-style UI with gearbox's ui module (gearbox::ui) - entity UI nodes built as UiBundles (Node, UiBundle, into_entity_builder, find_named, reserve_id/with_id, despawning), filled vector shapes and icons (Outline, Node::shape), hover styling, behavior-only widget components (Button, Checkbox, Slider, RadioGroup/RadioButton, TextInput, Collapsible, ScrollRows, DragHandle, Tooltip) and their events (Activate, ValueChange, Submit), the ready-styled themed:: builders (panel, button, slider, text_input, section, scroll_rows, ...; prefer hand-built UiBundles for app UI), themed::Label text, styling your own widgets, UiTheme/Theme colors and per-tree ThemeOverride, and UiInput for pointer and keyboard state. For Style and layout see the gearbox ui-layout skill.
 ---
 
 # gearbox ui: entity widgets
@@ -13,6 +13,38 @@ gearbox ui-layout skill (`UIPlugin` plus `WidgetPlugin::new(font)`) and these im
 use gearbox::{anarchy::{EntityID, Event, Query, Res, World}, glam::{Vec2, Vec4}};
 use gearbox::ui::{themed::{self, Label}, *};
 ```
+
+## Prefer `UiBundle`s over `themed::`
+
+For retained (non immediate mode) UI, build your own `UiBundle`s from `Node` builders and
+behavior-only widgets. Reach for `themed::` only when you want the immediate mode look.
+
+- **Use `UiBundle`s** for app and product UI: anything with its own look (a media player, a
+  HUD, a desktop widget), anything you restyle on hover or state, and reusable pieces you
+  compose. You own every node, so nothing overwrites your colors, sizes or children.
+- **Use `themed::`** for debug panels and tools that should match `Widget` windows, or to
+  sketch UI quickly. Themed widgets are restyled from `UiTheme` every frame, find their parts by
+  child index, and overwrite the colors they control, so they resist customizing.
+- **Mixing is fine.** A themed builder returns a `UiBundle`, so it can sit inside your own tree,
+  and `.style(..)` tweaks its layout.
+
+A hand-built button is a node, a behavior and a look:
+
+```rust
+/// A pill button showing `text`, sending `Activate` when clicked.
+fn pill_button(font: &std::sync::Arc<SDFFont>, text: &str) -> UiBundle {
+    let label = Text {
+        font: font.clone(), content: text.into(), color: Vec4::ONE, font_size: 15.0,
+        horizontal_align: Align::Center, vertical_align: Align::Center,
+    };
+    UiBundle::new(Node::row().padding(Rect::new(px(6.0), px(6.0), px(14.0), px(14.0)))
+            .radius(px(16.0)).background(srgb(0x2C2C2E)).text(label))
+        .with(Button::default())
+        .interactive()
+}
+```
+
+Hover and press looks are yours too, see Styling on hover below.
 
 ## Building and spawning
 
@@ -27,7 +59,7 @@ fn settings(world: &World) -> EntityID {
             themed::slider(Slider::new(0.0, 100.0, 50.0).step(1.0), "%", 0).named("volume"),
             themed::row().children([themed::text_input("Name", 160.0).named("name"), themed::button("Save").named("save")]),
         ]);
-    spawn_ui(world, window)
+    world.spawn(window.into_entity_builder())
 }
 ```
 
@@ -41,19 +73,19 @@ fn settings(world: &World) -> EntityID {
   - `.theme(ThemeOverride { .. })` (see Theming);
   - `.with_id(id)`.
 - **Spawning:**
-  - `spawn_ui(world, bundle)` returns the root's id. It also adds a `ComputedNode`, holding
-    where the node was last laid out in window pixels.
-  - `spawn_ui_under(world, parent, bundle)` adds a bundle as the parent's last child, for
-    lists that grow.
+  - `world.spawn(bundle.into_entity_builder())` spawns the tree and returns the root's id.
+    Every node also gets a `ComputedNode`, holding where it was last laid out in window pixels.
+  - To grow a spawned tree (a list), spawn the bundle, then
+    `world.hierarchy().add_child(parent, id)` makes it the parent's last child.
   - `find_named(world, root, "save")` finds an entity by `Name` at or below `root`.
   - `world.handle(id).despawn_recursive()` removes a node and everything under it.
 - **Reusing UI:** write functions returning `UiBundle`. To know a part's id before spawning,
-  `reserve_id(world)` it, give it to the part with `.with_id(id)`, and keep it in your own
+  `reserve_id()` it, give it to the part with `.with_id(id)`, and keep it in your own
   component on the root.
 - **Node builders:** `Node::row()`/`column()`, `width`, `height`, `size`, `min_*`/`max_*`,
   `margin`, `padding`, `gap`, `justify`, `align`, `align_self`, `wrap`, `grow`, `shrink`,
-  `basis`, `background`, `border(width, color)`, `radius`, `anchored`, `absolute`, `z_index`,
-  `display` and `text`. After spawning, change a node through `node.style_mut()`; `Node` doesn't
+  `basis`, `background`, `shape(outline, color)`, `border(width, color)`, `radius`, `anchored`,
+  `absolute`, `z_index`, `display` and `text`. After spawning, change a node through `node.style_mut()`; `Node` doesn't
   deref to `Style`.
 - **Sizes are logical pixels.** They're scaled by the window's scale factor when laid out, and
   `ComputedNode` is in window pixels.
@@ -101,6 +133,36 @@ fn show_sliders(world: World, mut sliders: Query<&'static Slider>) {
 }
 ```
 
+## Shapes and icons
+
+`Node::shape(outline, color)` fills an `Outline` instead of a background, stretched over the
+node's content box (inside its padding, so padding insets it). An outline is closed contours of
+quadratic curves in a unit box, from (-0.5, -0.5) at the top left to (0.5, 0.5) at the bottom
+right, filled by the nonzero rule. Build one with `Outline::builder()`: `move_to`, `line_to`,
+`quad_to` and `close`, plus `polygon`, `rounded_polygon(points, radius)`,
+`rounded_rect(min, max, radius)` and `circle(center, radius)`.
+
+```rust
+fn play_icon() -> Outline {
+    Outline::builder().rounded_polygon(&[Vec2::new(-0.2, -0.35), Vec2::new(0.4, 0.0), Vec2::new(-0.2, 0.35)], 0.07).build()
+}
+
+/// A round icon button: the outer node is picked and can show a hover circle, the inner one
+/// draws the icon.
+fn icon_button(outline: Outline, size: f32) -> UiBundle {
+    UiBundle::new(Node::row().size(px(size), px(size)).radius(px(size / 2.0)).shrink(0.0))
+        .with(Button::default())
+        .interactive()
+        .child(UiBundle::new(Node::new().size(px(size), px(size)).padding(Rect::single(px(size * 0.2))).shape(outline, Vec4::ONE)))
+}
+```
+
+- A node draws a background *or* a shape. Put the shape on a child to show it over a color.
+- To swap an icon (play to pause), set `Background::Shape(outline, color)` through `style_mut()`.
+- A contour wound the other way cuts a hole. Keep outlines to tens of curves, since each curve
+  is checked for every pixel of the node.
+- `examples/ui_shapes.rs` draws a set of media icons.
+
 ## Reacting to widgets
 
 ```rust
@@ -121,10 +183,34 @@ struct SettingsIds { save: EntityID }
   - the bundle's root for buttons, checkboxes, toggles, text inputs and list rows;
   - the slider's first child for `themed::slider` (the bundle's root is a row);
   - the `RadioGroup` for selections.
-- Keep the ids you need in a resource, found with `find_named` after spawning.
+- Keep the ids you need in a resource, found with `find_named` after spawning. Or tag widgets
+  with your own component (`.with(Action::Save)`) and read it back from `event.entity`, which
+  needs no ids at all.
 - **Changing widgets:** get a component through `world.handle(id).get::<&mut T>()`, for
   example `Checkbox::checked`, `Label::text`, `TextInput::text`, `Slider::disabled`, or a
   node's `style_mut().set_display(Display::None)` to hide it.
+
+### Styling on hover
+
+`Interaction` is `None`, `Hovered` or `Pressed`, set by picking on every node made
+`.interactive()`. Only those nodes are picked, with or without a background, so a node can show
+its background only while hovered:
+
+```rust
+/// Colors a node's background while the pointer is on it.
+#[derive(Debug, Clone, Copy, gearbox::anarchy::Component)]
+struct HoverBackground { hovered: Vec4, pressed: Vec4 }
+
+fn hover_backgrounds(mut nodes: Query<(&'static Interaction, &'static HoverBackground, &'static mut Node)>) {
+    while let Ok(Some((_, (interaction, colors, mut node)))) = nodes.next() {
+        node.style_mut().set_background(match *interaction {
+            Interaction::None => Background::Empty,
+            Interaction::Hovered => Background::Color(colors.hovered),
+            Interaction::Pressed => Background::Color(colors.pressed),
+        });
+    }
+}
+```
 
 ### Frame order
 
@@ -140,7 +226,8 @@ which tells game input whether the pointer belongs to the UI.
 
 ## Themed widgets
 
-`themed::` builders give the look of the immediate mode widgets, styled from `UiTheme` every frame:
+`themed::` builders give the look of the immediate mode widgets, styled from `UiTheme` every
+frame. Prefer your own `UiBundle`s for app UI (see above); these suit tools and debug panels:
 
 | Kind | Builders |
 | --- | --- |

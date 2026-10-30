@@ -4,7 +4,7 @@ use anarchy::{Component, DynComponent, EntityBuilder, EntityID, World, next_enti
 use magician_vgpu::glam::{Vec2, Vec4};
 
 use crate::ui::{
-    AlignItems, Anchor, Background, Display, FlexWrap, Interaction, JustifyContent, PositionType, Rect, RectCorners,
+    AlignItems, Anchor, Background, Display, FlexWrap, Interaction, JustifyContent, Outline, PositionType, Rect, RectCorners,
     Style, Text, ThemeOverride, Val,
 };
 
@@ -75,6 +75,9 @@ impl Node {
     pub fn basis(mut self, basis: Val) -> Self { self.0.set_flex_basis(basis); self }
 
     pub fn background(mut self, color: Vec4) -> Self { self.0.set_background(Background::Color(color)); self }
+
+    /// Draws `outline` in `color` over the content box instead of a background, see `Outline`.
+    pub fn shape(mut self, outline: Outline, color: Vec4) -> Self { self.0.set_background(Background::Shape(outline, color)); self }
 
     /// A border `width` logical pixels wide in `color`, inside the node's size.
     pub fn border(mut self, width: f32, color: Vec4) -> Self {

@@ -5,10 +5,12 @@ use crate::ui::SDFElement;
 
 pub mod data;
 pub mod events;
+pub mod outline;
 pub mod render;
 
 pub use data::*;
 pub use events::*;
+pub use outline::*;
 pub use render::*;
 
 /// Root of a UINode that is to be rendered as SDFs.

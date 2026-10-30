@@ -7,7 +7,8 @@ description: Use when writing quick immediate mode UI with gearbox's ui module (
 
 Describe windows every frame from a render-update system through the `Widget` resource. Each
 widget returns whether it was clicked or changed. This is good for debug and tool UIs; for UI
-other code composes, styles or keeps, use entity widgets.
+other code composes, styles or keeps, use entity nodes built as `UiBundle`s (see the gearbox
+ui-entity-widgets skill).
 
 Needs `UIPlugin` and `WidgetPlugin::new(font)` (see the gearbox ui-layout skill).
 

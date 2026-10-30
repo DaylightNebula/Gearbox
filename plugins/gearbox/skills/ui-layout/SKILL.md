@@ -1,6 +1,6 @@
 ---
 name: ui-layout
-description: Use when building UI with gearbox's ui module (gearbox::ui) - adding UIPlugin, laying nodes out with CSS flexbox (flex_direction, justify_content, align_items, gap, grow/shrink/basis, wrap, grid), sizing with Val (Px, Percent, PercentWidth/PercentHeight), the box model (margin, padding, border), anchoring UI to parts of the window or filling the screen (Anchor), absolute positioning, z_index, text with SDFFont, colors and backgrounds, and UINodeSDFRoot node trees with their hover/press events and listeners. For widgets see the gearbox ui-entity-widgets and ui-immediate-widgets skills.
+description: Use when building UI with gearbox's ui module (gearbox::ui) - adding UIPlugin, laying nodes out with CSS flexbox (flex_direction, justify_content, align_items, gap, grow/shrink/basis, wrap, grid), sizing with Val (Px, Percent, PercentWidth/PercentHeight), the box model (margin, padding, border), anchoring UI to parts of the window or filling the screen (Anchor), absolute positioning, z_index, text with SDFFont, colors and backgrounds (including vector shapes), and UINodeSDFRoot node trees with their hover/press events and listeners. For widgets see the gearbox ui-entity-widgets and ui-immediate-widgets skills.
 ---
 
 # gearbox ui: layout and nodes
@@ -49,7 +49,7 @@ fn main() -> anyhow::Result<()> {
 | | Entity nodes (preferred) | `UINodeSDFRoot` |
 | --- | --- | --- |
 | What | one entity per node, a `Node(Style)` component, children through anarchy's `Hierarchy` | one component holding a whole `UINode` tree |
-| Build | `UiBundle` + `spawn_ui` (entity-widgets skill) | `UINode::new(id)` + `add` |
+| Build | `UiBundle` + `world.spawn(bundle.into_entity_builder())` (entity-widgets skill) | `UINode::new(id)` + `add` |
 | Sizes | logical pixels, scaled by the window's scale factor | window pixels, not scaled |
 | Widgets | yes | no, raw nodes only |
 | Input | `Interaction` component, widget events | `UINode*Event`s and listeners |
@@ -86,7 +86,8 @@ Set with `Style`'s setters (`set_width(..)`, which return `&mut Style`) on a `UI
 - **Display:** `Flex` (default), `Grid` (equal cells, `grid_columns` wide or square-ish), or
   `None` (hidden, no room, not picked).
 - **Look:**
-  - `background` (`Background::Color(Vec4)`, `Image(TextureHandle)` or `Empty`);
+  - `background` (`Background::Color(Vec4)`, `Image(TextureHandle)`, `Shape(Outline, Vec4)`
+    for a filled vector shape over the content box, or `Empty`);
   - `border_color`;
   - `border_radius` (`RectCorners::single(px(6.0))`; `Percent(0.5)` makes a pill or circle).
 - **Text:** `set_text(Some(Text { font, content, color, font_size, horizontal_align,
