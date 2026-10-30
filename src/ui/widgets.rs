@@ -8,13 +8,13 @@ use ahash::AHashMap;
 use anarchy::{EntityBuilder, EntityID, Res, ResMut, Resource, SystemPin, World, after, and, before, pin};
 use crate::{App, Plugin, RenderDeltaTime};
 use magician_vgpu::glam::{Vec2, Vec4};
-use winit::keyboard::{Key, ModifiersState};
+use winit::keyboard::{Key, ModifiersState, NamedKey};
 
 use crate::ui::{
-    Align, AlignItems, Anchor, Background, EditContext, JustifyContent, KeyOutcome, PositionType, Rect, RectCorners, SDFFont, Text,
+    Align, AlignItems, Anchor, Background, ClipRect, EditContext, Overflow, Scrollbar, Scrolled, input::SCROLL_PER_NOTCH, JustifyContent, KeyOutcome, PositionType, Rect, RectCorners, SDFFont, Text,
     TextCursor, TextEditor, UiClipboard, UiInput, UiTheme, UiWidgetsPlugin, UINode, UINodeSDFRoot, Val, caret_shows,
     clamp_scroll, field_shows, follow_caret, layout_entity_ui, pick_ui, read_ui_input, show_text_inputs,
-    themed::{restyle_themed, tooltip_window}, ui_render_pass,
+    themed::{SUBMENU_ARROW, restyle_themed, tooltip_window}, ui_render_pass,
 };
 
 
@@ -39,7 +39,6 @@ pub(crate) const LED: f32 = 8.0;
 pub(crate) const DIGIT: Vec2 = Vec2::new(10.0, 17.0);
 pub(crate) const SEGMENT: f32 = 2.5;
 pub(crate) const SCROLLBAR: f32 = 6.0;
-const ROWS_PER_NOTCH: f32 = 2.0;
 pub(crate) const NONE: Vec4 = Vec4::ZERO;
 
 /// Widget colors. They're linear, so pick them for an sRGB surface, `srgb` converts hex colors.
@@ -151,8 +150,15 @@ impl Theme {
         (if lit { self.accent } else { self.well.lerp(self.accent, 0.4) }, self.well.lerp(self.accent, 0.05))
     }
 
-    /// A scrollbar's thumb.
-    pub fn scroll_thumb(&self, hovered: bool) -> Vec4 { if hovered { self.dim } else { self.border } }
+    /// A menu item's background and text.
+    pub fn menu_item(&self, hot: bool, enabled: bool) -> (Vec4, Vec4) {
+        (if hot { self.hover } else { NONE }, if enabled { self.text } else { self.dim })
+    }
+
+    /// How scrollbars look, sizes in logical pixels.
+    pub fn scrollbar(&self) -> Scrollbar {
+        Scrollbar { width: SCROLLBAR, gap: GAP, track: self.well, thumb: self.border, thumb_hovered: self.dim }
+    }
 }
 
 /// The linear color of an sRGB hex color like `0xF2A33A`.
@@ -265,10 +271,17 @@ pub struct Widget {
     /// Where iso_ui laid out last frame's widgets.
     rects: AHashMap<String, Area>,
     open: AHashMap<String, bool>,
-    /// First shown row of each list, fractional between wheel notches.
-    scrolls: AHashMap<String, f32>,
+    /// How far each scroll area is scrolled, in window pixels, and whether its content
+    /// overflowed last frame.
+    scrolls: AHashMap<String, (f32, bool)>,
+    /// How far along the held scrollbar thumb it was grabbed, in window pixels.
+    scroll_grab: Option<f32>,
     /// Where each window was dragged to.
     positions: AHashMap<String, Vec2>,
+    /// Ids of the open menu windows, the context menu first then each submenu, and where the
+    /// context menu opened.
+    menus: Vec<String>,
+    menu_at: Vec2,
     tooltip: Option<String>,
     /// Drawn under the panels, each window after its id.
     huds: Vec<(String, UINode)>,
@@ -357,6 +370,12 @@ impl Widget {
     fn window(&mut self, id: &str, title: Option<(String, impl FnOnce(&mut Ui))>, place: Place, width: Option<f32>, row: bool, layer: Layer, build: impl FnOnce(&mut Ui)) {
         let pad = self.px(PAD);
         let inner = width.map_or(0.0, |width| self.px(width) - 2.0 * pad);
+        // windows opened while building this one, like submenus, go over it
+        let slot = match layer {
+            Layer::Hud => self.huds.len(),
+            Layer::Panel => self.panels.len(),
+            Layer::Popup => self.popups.len()
+        };
         let mut ui = Ui::new(self, id.to_string(), inner, row);
         if let Some((title_id, header)) = title {
             let bar_width = ui.width;
@@ -402,9 +421,9 @@ impl Widget {
         node.set_border_color(Some(self.theme.border));
         let window = (id.to_string(), node);
         match layer {
-            Layer::Hud => self.huds.push(window),
-            Layer::Panel => self.panels.push(window),
-            Layer::Popup => self.popups.push(window)
+            Layer::Hud => self.huds.insert(slot, window),
+            Layer::Panel => self.panels.insert(slot, window),
+            Layer::Popup => self.popups.insert(slot, window)
         }
     }
 
@@ -552,6 +571,82 @@ impl<'a> Ui<'a> {
     /// Shows `hint` next to the pointer while the widget added last is hovered.
     pub fn hint(&mut self, hint: &str) {
         if self.last.as_ref().is_some_and(|id| self.widget.is_hot(id)) { self.widget.tooltip = Some(hint.to_string()); }
+    }
+
+    /// Opens a menu `width` logical pixels wide at the pointer when the widget added last is right
+    /// clicked, `build` adding its `menu_item`s, `submenu`s and `separator`s while it's open.
+    /// Escape, choosing an item or pressing anywhere else closes it.
+    pub fn context_menu(&mut self, key: &str, width: f32, build: impl FnOnce(&mut Ui)) {
+        let id = format!("{}/menu", self.id(key));
+        if self.right_clicked() {
+            self.widget.menus = vec![id.clone()];
+            self.widget.menu_at = self.widget.cursor;
+        }
+        if self.widget.menus.first() == Some(&id) {
+            let at = self.widget.menu_at;
+            self.widget.window(&id, None::<(String, fn(&mut Ui))>, Place::At(at), Some(width), false, Layer::Popup, build);
+        }
+    }
+
+    /// An item of a menu, returning whether it was chosen, which closes the menus.
+    pub fn menu_item(&mut self, text: &str) -> bool { self.menu_row(text, None, None) }
+
+    /// A `menu_item` showing `shortcut` dim at its right end.
+    pub fn menu_item_shortcut(&mut self, text: &str, shortcut: &str) -> bool {
+        self.menu_row(text, Some((shortcut, SMALL_FONT_SIZE)), None)
+    }
+
+    /// An item of a menu opening a submenu `width` logical pixels wide beside it while hovered,
+    /// `build` adding its items.
+    pub fn submenu(&mut self, text: &str, width: f32, build: impl FnOnce(&mut Ui)) {
+        let item = self.id(text);
+        let id = format!("{item}/menu");
+        let open = self.widget.menus.contains(&id);
+        self.menu_row(text, Some((SUBMENU_ARROW, FONT_SIZE)), Some(open));
+        let depth = self.widget.menus.iter().position(|menu| *menu == self.scope);
+        if !open && self.widget.is_hot(&item) && let Some(depth) = depth && self.widget.menus.len() == depth + 1 {
+            self.widget.menus.push(id.clone());
+        }
+        if !self.widget.menus.contains(&id) { return }
+        // beside the item, on its left if there's no room on its right
+        let Some(area) = self.widget.rects.get(&item).copied() else { return };
+        let width_px = self.px(width);
+        let x = if area.max.x + width_px > self.widget.screen.x { area.min.x - width_px } else { area.max.x };
+        self.widget.window(&id, None::<(String, fn(&mut Ui))>, Place::At(Vec2::new(x, area.min.y)), Some(width), false, Layer::Popup, build);
+    }
+
+    /// A menu row reading `text` with `trailing` (text, size) dim at its end, lit while hovered.
+    /// `submenu` is whether the submenu it opens is open, `None` for a plain item. Returns
+    /// whether a plain item was chosen.
+    fn menu_row(&mut self, text: &str, trailing: Option<(&str, f32)>, submenu: Option<bool>) -> bool {
+        let id = self.id(text);
+        let theme = self.widget.theme;
+        let hot = self.widget.is_hot(&id);
+        // hovering an item closes the submenus of the others
+        if hot && let Some(depth) = self.widget.menus.iter().position(|menu| *menu == self.scope) {
+            let own = format!("{id}/menu");
+            if self.widget.menus.get(depth + 1) != Some(&own) { self.widget.menus.truncate(depth + 1); }
+        }
+        let chosen = self.widget.clicked(&id) && submenu.is_none();
+        if chosen { self.widget.menus.clear(); }
+
+        let (background, color) = theme.menu_item(hot || submenu == Some(true), true);
+        let mut node = UINode::new(id);
+        node.set_row(JustifyContent::Start, AlignItems::Center);
+        fill(&mut node, background, self.px(RADIUS));
+        let inset = self.px(TEXT_INSET);
+        let mut label = self.styled_text(None, text, color, Align::Start, FONT_SIZE, false);
+        label.set_padding(Rect::new(Val::Px(0.0), Val::Px(0.0), Val::Px(inset), Val::Px(inset)));
+        label.set_flex_grow(1.0);
+        node.add(label);
+        if let Some((trailing, size)) = trailing {
+            let mut tail = self.styled_text(None, trailing, theme.dim, Align::End, size, false);
+            tail.set_padding(Rect::new_right(Val::Px(inset)));
+            tail.set_flex_shrink(0.0);
+            node.add(tail);
+        }
+        self.push(node, Vec2::new(self.width, self.row_height()));
+        chosen
     }
 
     /// Whether the widget added last was right clicked this frame.
@@ -1125,37 +1220,109 @@ impl<'a> Ui<'a> {
     /// scrolled by the wheel while hovered.
     pub fn scroll_rows(&mut self, key: &str, rows: usize, visible: usize, mut build: impl FnMut(&mut Ui, usize)) {
         let id = self.id(key);
-        let shown = rows.min(visible);
-        let hovered = self.widget.rects.get(&id).is_some_and(|area| area.contains(self.widget.cursor));
-        let wheel = if hovered { self.widget.wheel } else { 0.0 };
-        let first = self.widget.scrolls.entry(id.clone()).or_default();
-        *first = (*first - wheel * ROWS_PER_NOTCH).clamp(0.0, (rows - shown) as f32);
-        let first = *first as usize;
-
-        let (bar, gap) = (self.px(SCROLLBAR), self.px(GAP));
-        let mut list = self.child(false, self.width - bar - gap);
-        for idx in first..first + shown { build(&mut list, idx); }
-        let (mut content, width, height) = (list.node, list.width, list.extent);
-        content.set_width(Val::Px(width));
-        content.set_height(Val::Px(height.max(0.01)));
-
-        let mut area = UINode::new(id);
-        area.set_row(JustifyContent::Start, AlignItems::Start);
-        area.add(content);
-        if shown < rows {
-            let mut track = UINode::default();
-            track.set_width(Val::Px(bar));
-            track.set_height(Val::Px(height));
-            track.set_margin(Rect::new_left(Val::Px(gap)));
-            fill(&mut track, self.widget.theme.well, bar / 2.0);
-            let mut thumb = UINode::default();
-            thumb.set_height(Val::Px(height * shown as f32 / rows as f32));
-            thumb.set_margin(Rect::new_top(Val::Px(height * first as f32 / rows as f32)));
-            fill(&mut thumb, self.widget.theme.scroll_thumb(hovered), bar / 2.0);
-            track.add(thumb);
-            area.add(track);
+        let (gap, pitch) = (self.px(GAP), self.row_height() + self.px(GAP));
+        let span = |rows: usize| if rows == 0 { 0.0 } else { rows as f32 * pitch - gap };
+        let (view, total) = (span(rows.min(visible)), span(rows));
+        let offset = self.scroll_offset(&id, total, view);
+        let overflows = total > view;
+        // only the rows that show are built
+        let first = ((offset / pitch).floor() as usize).min(rows);
+        let end = (((offset + view) / pitch).ceil() as usize).clamp(first, rows);
+        let mut list = self.child(false, self.width - self.scrollbar_room(overflows));
+        if first > 0 {
+            let width = list.width;
+            list.push(UINode::default(), Vec2::new(width, span(first)));
         }
-        self.push(area, Vec2::new(self.width, height));
+        for idx in first..end { build(&mut list, idx); }
+        let (content, width) = (list.node, list.width);
+        self.scroll_box(id, content, Vec2::new(width, total), view, overflows);
+    }
+
+    /// Lays `build`'s widgets out in a column up to `max_height` logical pixels tall, scrolled by
+    /// the wheel and a scrollbar when they're taller.
+    pub fn scroll_area(&mut self, key: &str, max_height: f32, build: impl FnOnce(&mut Ui)) {
+        let id = self.id(key);
+        // the bar's room is kept while last frame's content overflowed
+        let overflowed = self.widget.scrolls.get(&id).is_some_and(|(_, overflowed)| *overflowed);
+        let mut list = self.child(false, self.width - self.scrollbar_room(overflowed));
+        build(&mut list);
+        let (content, size) = (list.node, Vec2::new(list.width, list.extent));
+        let view = size.y.min(self.px(max_height));
+        let overflows = size.y > view;
+        self.scroll_offset(&id, size.y, view);
+        self.widget.scrolls.entry(id.clone()).or_default().1 = overflows;
+        self.scroll_box(id, content, size, view, overflows);
+    }
+
+    /// Wrapped `text` up to `max_height` logical pixels tall, scrolled by the wheel and a
+    /// scrollbar when it's taller.
+    pub fn text_box(&mut self, key: &str, text: &str, max_height: f32) {
+        let id = self.id(key);
+        let (inset, max_height) = (self.px(TEXT_INSET), self.px(max_height));
+        let font = self.widget.font(false).cloned();
+        let measure = |width: f32| font.as_ref().map_or(0.0, |font| font.layout(text, self.px(FONT_SIZE), Some(width - 2.0 * inset)).size().y);
+        let mut height = measure(self.width);
+        let overflows = height > max_height;
+        let width = self.width - self.scrollbar_room(overflows);
+        if overflows { height = measure(width); }
+        let view = height.min(max_height);
+        self.scroll_offset(&id, height, view);
+
+        let mut node = self.styled_text(None, text, self.widget.theme.text, Align::Start, FONT_SIZE, false);
+        node.set_padding(Rect::new(Val::Px(0.0), Val::Px(0.0), Val::Px(inset), Val::Px(inset)));
+        if let Some(text) = node.text_mut() { text.wrap = true; }
+        node.set_width(Val::Px(width));
+        node.set_height(Val::Px(height));
+        node.set_flex_shrink(0.0);
+        let mut content = UINode::default();
+        content.add(node);
+        self.scroll_box(id, content, Vec2::new(width, height), view, overflows);
+    }
+
+    /// Room a vertical scrollbar takes, if `shown`.
+    fn scrollbar_room(&self, shown: bool) -> f32 { if shown { self.px(SCROLLBAR + GAP) } else { 0.0 } }
+
+    /// The scroll area `id`'s offset for content `content` window pixels tall shown `view` tall,
+    /// moved by the wheel, its thumb and its track, using where it was laid out last frame.
+    fn scroll_offset(&mut self, id: &str, content: f32, view: f32) -> f32 {
+        let top = self.widget.over_window.as_deref() == Some(self.scope.as_str());
+        let widget = &mut *self.widget;
+        let max = (content - view).max(0.0);
+        let area = widget.rects.get(id).copied();
+        let scroll = area.and_then(|area| area.scroll);
+        let mut offset = widget.scrolls.get(id).map_or(0.0, |(offset, _)| *offset);
+        if top && area.is_some_and(|area| area.contains(widget.cursor)) { offset -= widget.wheel * SCROLL_PER_NOTCH * widget.scale; }
+        if let Some(scroll) = scroll && let Some(bar) = scroll.bars[1] && let Some(thumb) = bar.thumb {
+            let at = widget.cursor.y;
+            if widget.clicked(id) && bar.track.contains(widget.cursor) {
+                if at >= thumb.min.y && at <= thumb.max.y {
+                    widget.scroll_grab = Some(at - thumb.min.y);
+                } else {
+                    // a page toward the pointer
+                    offset += if at < thumb.min.y { -scroll.view.size().y } else { scroll.view.size().y };
+                }
+            }
+            if widget.dragging(id) && let Some(grab) = widget.scroll_grab { offset = scroll.offset_at(1, at - grab); }
+        }
+        let offset = offset.clamp(0.0, max);
+        widget.scrolls.entry(id.to_string()).or_default().0 = offset;
+        offset
+    }
+
+    /// Adds `content`, `size` big, in a box `view` tall scrolled to the offset `scroll_offset`
+    /// gave `id`, with a vertical scrollbar if it `overflows`.
+    fn scroll_box(&mut self, id: String, mut content: UINode, size: Vec2, view: f32, overflows: bool) {
+        content.set_width(Val::Px(size.x));
+        content.set_height(Val::Px(size.y.max(0.01)));
+        content.set_flex_shrink(0.0);
+        let offset = self.widget.scrolls.get(&id).map_or(0.0, |(offset, _)| *offset);
+        let theme = self.widget.theme.scrollbar();
+        let mut area = UINode::new(id);
+        area.set_overflow_y(if overflows { Overflow::Scroll } else { Overflow::Clip });
+        area.set_scroll(Vec2::new(0.0, offset));
+        area.set_scrollbar(Scrollbar { width: self.px(theme.width), gap: self.px(theme.gap), ..theme });
+        area.add(content);
+        self.push(area, Vec2::new(self.width, view));
     }
 
     /// A scrolling list of collapsing `sections` (title, entries, open at first), `entry` adding
@@ -1244,15 +1411,22 @@ fn fill(node: &mut UINode, color: Vec4, radius: f32) {
 
 /// Screen rectangle a node was laid out in.
 #[derive(Clone, Copy)]
-struct Area { min: Vec2, max: Vec2 }
+struct Area {
+    min: Vec2,
+    max: Vec2,
+    /// The part of the screen it shows in.
+    clip: ClipRect,
+    scroll: Option<Scrolled>,
+}
 
 impl Area {
     fn of(node: &UINode) -> Option<Self> {
         let state = *node.last_state()?;
-        Some(Self { min: state.position - state.size / 2.0, max: state.position + state.size / 2.0 })
+        Some(Self { min: state.position - state.size / 2.0, max: state.position + state.size / 2.0, clip: state.clip, scroll: state.scroll })
     }
 
-    fn contains(&self, p: Vec2) -> bool { p.cmpge(self.min).all() && p.cmple(self.max).all() }
+    /// Whether `p` is over the part that shows.
+    fn contains(&self, p: Vec2) -> bool { p.cmpge(self.min).all() && p.cmple(self.max).all() && self.clip.contains(p) }
 
     fn size(&self) -> Vec2 { self.max - self.min }
 }
@@ -1302,13 +1476,21 @@ fn widgets_begin(mut widget: ResMut<Widget>, mut input: ResMut<UiInput>, theme: 
     }
     input.over_windows = widget.over_ui;
 
+    // menus close on Escape and presses anywhere else
+    let escape = input.keys.iter().any(|(key, _)| matches!(key, Key::Named(NamedKey::Escape)));
+    let over_menu = widget.over_window.as_ref().is_some_and(|window| widget.menus.contains(window));
+    if escape || ((widget.pressed || widget.right_pressed) && !over_menu) { widget.menus.clear(); }
+
     if widget.pressed {
         widget.active = widget.hot.clone();
         if widget.focus.as_ref().is_some_and(|(focus, _)| widget.hot.as_ref() != Some(focus)) {
             widget.committed = widget.focus.take();
         }
     }
-    if !widget.down { widget.active = None; }
+    if !widget.down {
+        widget.active = None;
+        widget.scroll_grab = None;
+    }
 }
 
 /// Hands this frame's windows to iso_ui, which lays them out and draws them, and keeps theme

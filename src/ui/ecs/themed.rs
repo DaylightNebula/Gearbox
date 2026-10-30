@@ -6,11 +6,11 @@ use anarchy::{Component, ComponentMeta, EntityID, Query, Res, World};
 use magician_vgpu::glam::{Vec2, Vec4};
 
 use crate::ui::{
-    Align, AlignItems, Background, Button, Checkbox, Collapsible, ComputedNode, Display, DragHandle, Interaction, JustifyContent,
-    Node, PositionType, RadioButton, RadioGroup, Rect, RectCorners, ScrollItem, ScrollRows, Slider, Style, Text, TextInput, Theme,
+    Align, AlignItems, Background, Button, Checkbox, Collapsible, Display, DragHandle, Interaction, JustifyContent, Menu, MenuItem,
+    Node, PositionType, RadioButton, RadioGroup, Rect, RectCorners, Overflow, Slider, Style, Text, TextInput, Theme,
     Tone, Tooltip, UiBundle, UiFocus, UiInput, UiTheme, Val, local_theme, px,
     widgets::{
-        CHECK, DIGIT, FONT_SIZE, GAP, GROOVE, HEADING_FONT_SIZE, INDENT, KNOB, LED, LIP, MARKER, NONE, PAD, RADIUS, ROW, SCROLLBAR,
+        CHECK, DIGIT, FONT_SIZE, GAP, GROOVE, HEADING_FONT_SIZE, INDENT, KNOB, LED, LIP, MARKER, NONE, PAD, RADIUS, ROW,
         SEG_A, SEG_B, SEG_C, SEG_D, SEG_E, SEG_F, SEG_G, SEGMENT, SLIDER, SMALL_FONT_SIZE, SWATCH, SWITCH, TEXT_INSET, segments,
     },
 };
@@ -44,12 +44,17 @@ pub struct Label {
     pub align: Align,
     /// Overrides the theme's text color.
     pub color: Option<Vec4>,
+    /// Wraps words onto new lines to fit its node's width.
+    pub wrap: bool,
 }
 
 impl Label {
     pub fn new(text: impl Into<String>) -> Self {
-        Self { text: text.into(), size: TextSize::Normal, bold: false, align: Align::Start, color: None }
+        Self { text: text.into(), size: TextSize::Normal, bold: false, align: Align::Start, color: None, wrap: false }
     }
+
+    /// Wraps words onto new lines to fit its node's width.
+    pub fn wrapped(mut self) -> Self { self.wrap = true; self }
 
     fn sized(mut self, size: TextSize, bold: bool) -> Self { self.size = size; self.bold = bold; self }
 
@@ -85,6 +90,7 @@ pub enum Themed {
     ListRow,
     Header,
     Scroll,
+    MenuItem,
     Led,
     SevenSegment { digits: usize },
     Keycap,
@@ -296,14 +302,12 @@ pub fn segmented(options: impl IntoIterator<Item = impl Into<String>>, selected:
         .children(options)
 }
 
-/// A list row selecting `index` in the `RadioGroup` above it when clicked. Rows count for a
-/// `scroll_rows` above them.
+/// A list row selecting `index` in the `RadioGroup` above it when clicked.
 pub fn list_row(index: usize, item: impl Into<ListItem>) -> UiBundle {
     let item = item.into();
     let marker = UiBundle::new(fixed().size(px(MARKER), px(ROW - 8.0)));
     let mut row = UiBundle::new(Node::row().height(px(ROW)).align(AlignItems::Center).shrink(0.0))
         .with(RadioButton { index })
-        .with(ScrollItem)
         .interactive()
         .with(Themed::ListRow)
         .child(marker);
@@ -331,7 +335,6 @@ fn header(title: String, count: Option<usize>) -> UiBundle {
     let title = UiBundle::new(Node::new().grow(1.0).padding(Rect::new_left(px(4.0)))).with(Label::new(title).sized(TextSize::Normal, true));
     let mut header = UiBundle::new(Node::row().height(px(ROW)).align(AlignItems::Center).shrink(0.0))
         .interactive()
-        .with(ScrollItem)
         .with(Themed::Header)
         .children([sign, title]);
     if let Some(count) = count {
@@ -362,15 +365,70 @@ fn collapsing(title: String, open: bool, children: Vec<UiBundle>, counted: bool)
 }
 
 /// Shows up to `visible` of the list rows and headers in `children` at a time, scrolled by the
-/// wheel, with a scrollbar while there are more. Add a `RadioGroup` with `.with(..)` to select
-/// its rows.
+/// wheel and a scrollbar while there are more. Add a `RadioGroup` with `.with(..)` to select its
+/// rows.
 pub fn scroll_rows(visible: usize, children: impl IntoIterator<Item = UiBundle>) -> UiBundle {
-    let content = UiBundle::new(Node::column().gap(px(GAP)).grow(1.0)).with(ScrollRows::new(visible)).children(children);
-    let thumb = UiBundle::new(Node::new());
-    let track = UiBundle::new(fixed().width(px(SCROLLBAR)).margin(Rect::new_left(px(GAP)))).child(thumb);
-    UiBundle::new(Node::row().align(AlignItems::Start).shrink(0.0))
+    scroll_area(rows_height(visible), children)
+}
+
+/// Logical pixels `rows` rows take with the gaps between them.
+pub(crate) fn rows_height(rows: usize) -> f32 { if rows == 0 { 0.0 } else { rows as f32 * (ROW + GAP) - GAP } }
+
+/// Lays `children` out as a column up to `max_height` logical pixels tall, scrolled by the wheel
+/// and a scrollbar when they're taller.
+pub fn scroll_area(max_height: f32, children: impl IntoIterator<Item = UiBundle>) -> UiBundle {
+    UiBundle::new(Node::column().gap(px(GAP)).max_height(px(max_height)).overflow_y(Overflow::Auto).shrink(0.0))
         .with(Themed::Scroll)
-        .children([content, track])
+        .children(children)
+}
+
+/// Wrapped `text` up to `max_height` logical pixels tall, scrolled by the wheel and a scrollbar
+/// when it's taller. Change the `Label` of its child to change the text.
+pub fn text_box(text: impl Into<String>, max_height: f32) -> UiBundle {
+    let text = UiBundle::new(Node::new().padding(insets(TEXT_INSET, TEXT_INSET)).shrink(0.0)).with(Label::new(text).wrapped());
+    scroll_area(max_height, [text])
+}
+
+/// Menus draw over everything but tooltips.
+const MENU_Z: i32 = i32::MAX - 1;
+
+/// A closed menu `width` logical pixels wide holding `items`: `menu_item`s, `submenu`s and
+/// `separator`s. Open it at the pointer with `UiBundle::context_menu`.
+pub fn menu(width: f32, items: impl IntoIterator<Item = UiBundle>) -> UiBundle {
+    let node = Node::column().width(px(width)).gap(px(GAP)).padding(Rect::single(px(PAD - 1.0))).border(1.0, NONE)
+        .fixed(Rect::new_top_left(zero(), zero())).z_index(MENU_Z).display(Display::None);
+    UiBundle::new(node).with(Menu::default()).with(Themed::Frame).children(items)
+}
+
+/// An item of a `menu`, sending `Activate` when chosen. Set its `MenuItem::disabled` to grey it
+/// out.
+pub fn menu_item(text: impl Into<String>) -> UiBundle { menu_row(text.into(), None) }
+
+/// A `menu_item` showing `shortcut` dim at its right end.
+pub fn menu_item_shortcut(text: impl Into<String>, shortcut: impl Into<String>) -> UiBundle {
+    menu_row(text.into(), Some(Label::new(shortcut).sized(TextSize::Small, false)))
+}
+
+/// An item of a `menu` opening a submenu `width` logical pixels wide of `items` beside it while
+/// hovered.
+pub fn submenu(text: impl Into<String>, width: f32, items: impl IntoIterator<Item = UiBundle>) -> UiBundle {
+    menu_row(text.into(), Some(Label::new(SUBMENU_ARROW))).child(menu(width, items))
+}
+
+/// Marks an item that opens a submenu.
+pub(crate) const SUBMENU_ARROW: &str = "\u{203A}";
+
+fn menu_row(text: String, trailing: Option<Label>) -> UiBundle {
+    let label = UiBundle::new(Node::new().grow(1.0).padding(insets(TEXT_INSET, TEXT_INSET))).with(Label::new(text));
+    let row = UiBundle::new(Node::row().height(px(ROW)).align(AlignItems::Center).shrink(0.0))
+        .with(MenuItem::default())
+        .interactive()
+        .with(Themed::MenuItem)
+        .child(label);
+    match trailing {
+        Some(trailing) => row.child(UiBundle::new(fixed().padding(insets(0.0, TEXT_INSET))).with(trailing.aligned(Align::End)).with(Dim)),
+        None => row,
+    }
 }
 
 /// An indicator light in `color` while `lit`, with `text` after it. Change its `Led` to change it.
@@ -631,19 +689,14 @@ impl Restyle<'_> {
                 label_of(world, sign, |label| label.text = if open { "\u{2212}" } else { "+" }.to_string());
                 label_of(world, child(world, id, &[1]), |label| label.color = Some(title));
             }
-            Themed::Scroll => {
-                let Some(content) = child(world, id, &[0]) else { return };
-                let Some(list) = get::<ScrollRows>(world, content) else { return };
-                let hovered = get::<ComputedNode>(world, id).is_some_and(|node| node.contains(self.input.cursor));
-                let height = get::<ComputedNode>(world, content).map_or(0.0, |node| node.size.y / self.input.scale.max(f32::EPSILON));
-                let overflows = list.rows > list.visible;
-                style(world, child(world, id, &[1]), |style| fill(style, if overflows { theme.well } else { NONE }, SCROLLBAR / 2.0));
-                style(world, child(world, id, &[1, 0]), |style| {
-                    let rows = list.rows.max(1) as f32;
-                    style.set_height(px(height * list.visible.min(list.rows) as f32 / rows));
-                    style.set_margin(Rect::new_top(px(height * list.first.floor() / rows)));
-                    fill(style, if overflows { theme.scroll_thumb(hovered) } else { NONE }, SCROLLBAR / 2.0);
-                });
+            Themed::Scroll => style(world, Some(id), |style| { style.set_scrollbar(theme.scrollbar()); }),
+            Themed::MenuItem => {
+                let enabled = get::<MenuItem>(world, id).is_some_and(|item| !item.disabled);
+                // an item stays lit while its submenu is open
+                let submenu_open = children(world, id).into_iter().any(|part| get::<Menu>(world, part).is_some_and(|menu| menu.open));
+                let (background, text) = theme.menu_item(enabled && (self.hot(id) || submenu_open), enabled);
+                style(world, Some(id), |style| fill(style, background, RADIUS));
+                label_of(world, child(world, id, &[0]), |label| label.color = Some(text));
             }
             Themed::Led => {
                 let Some(led) = get::<Led>(world, id) else { return };
@@ -730,7 +783,8 @@ pub(crate) fn restyle_themed(world: World, theme: Res<UiTheme>, input: Res<UiInp
         let local = local_theme(&world, id, &theme);
         let color = if has::<Dim>(&world, id) { local.theme.dim } else { label.color.unwrap_or(local.theme.text) };
         node.style_mut().set_text(local.font(label.bold).cloned().map(|font| {
-            Text::new(font, label.text.clone(), color, label.size.px()).with_align(label.align, Align::Center)
+            let text = Text::new(font, label.text.clone(), color, label.size.px()).with_align(label.align, Align::Center);
+            if label.wrap { text.with_wrap() } else { text }
         }));
     }
 }

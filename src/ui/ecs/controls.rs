@@ -171,27 +171,28 @@ impl TextInput {
 #[derive(Clone, Copy, Debug, Default, Component)]
 pub struct Collapsible { pub open: bool }
 
-/// Shows `visible` of the `ScrollItem`s below it at a time, starting at row `first`, scrolled
-/// by the wheel while the pointer is over it. Rows inside hidden nodes (a closed `Collapsible`)
-/// don't count.
-#[derive(Clone, Debug, Default, Component)]
-pub struct ScrollRows {
-    /// First shown row, fractional between wheel notches.
-    pub first: f32,
-    pub visible: usize,
-    /// Rows below it, counted each frame.
-    pub rows: usize,
-    /// Nodes it hid last frame.
-    hidden: Vec<EntityID>,
-}
-
-impl ScrollRows {
-    pub fn new(visible: usize) -> Self { Self { visible, ..Default::default() } }
-}
-
-/// A row of the `ScrollRows` above it.
+/// Opens the `Menu` among its children at the pointer when right clicked. The node needs an
+/// `Interaction`; right clicks on nodes below it without a `ContextMenu` of their own open it too.
 #[derive(Clone, Copy, Debug, Default, Component)]
-pub struct ScrollItem;
+pub struct ContextMenu { pub disabled: bool }
+
+/// A menu of `MenuItem`s, shown while `open` as a `PositionType::Fixed` node so the nodes it's
+/// under don't cut it off. A `ContextMenu` opens it at the pointer, and a `MenuItem` with a `Menu`
+/// child opens that as a submenu beside it while hovered. Escape, choosing an item or pressing
+/// anywhere else closes them all.
+#[derive(Clone, Copy, Debug, Default, Component)]
+pub struct Menu {
+    pub open: bool,
+    /// Where it opened, in window pixels.
+    at: Vec2,
+    /// The item it's a submenu of.
+    item: Option<EntityID>,
+}
+
+/// A choice in the `Menu` above it, which needs an `Interaction`. Clicking it sends `Activate`
+/// and closes the menus, unless it opens a submenu.
+#[derive(Clone, Copy, Debug, Default, Component)]
+pub struct MenuItem { pub disabled: bool }
 
 /// Dragging it moves `target`, or its parent if `None`, with the pointer. The moved node must
 /// be absolutely positioned.
@@ -216,10 +217,9 @@ impl Plugin for UiWidgetsPlugin {
             .on_render_update_with(drag_sliders, start())
             .on_render_update_with(select_radios, start())
             .on_render_update_with(edit_text_inputs, start())
-            .on_render_update_with(unhide_scrolled, and(start(), before(toggle_collapsibles)))
             .on_render_update_with(toggle_collapsibles, start())
-            .on_render_update_with(scroll_rows, and(start(), after(toggle_collapsibles)))
             .on_render_update_with(drag_handles, start())
+            .on_render_update_with(run_menus, start())
             .on_render_update_with(show_text_inputs, and(pin(SystemPin::End), before(layout_entity_ui)))
     }
 }
@@ -439,47 +439,88 @@ fn toggle_collapsibles(world: World, input: Res<UiInput>, mut collapsibles: Quer
     }
 }
 
-/// Shows what `scroll_rows` hid last frame, before collapsibles decide what's open.
-fn unhide_scrolled(world: World, mut lists: Query<&'static mut ScrollRows>) {
-    while let Ok(Some((_, mut list))) = lists.next() {
-        for id in std::mem::take(&mut list.hidden) { set_display(&world, id, Display::Flex); }
-    }
+/// The nearest `Menu` at or above `id`.
+fn menu_of(world: &World, id: EntityID) -> Option<EntityID> {
+    std::iter::once(id).chain(world.hierarchy().ancestors(id)).find(|id| world.handle(*id).get::<&Menu>().ok().flatten().is_some())
 }
 
-/// The rows under `id` in order, and its shown containers with the rows each holds.
-fn rows_under(world: &World, id: EntityID, rows: &mut Vec<EntityID>, containers: &mut Vec<(EntityID, std::ops::Range<usize>)>) {
-    for child in world.hierarchy().children(id).map(|children| children.to_vec()).unwrap_or_default() {
-        if world.handle(child).get::<&ScrollItem>().ok().flatten().is_some() {
-            rows.push(child);
-            continue
-        }
-        let shown = world.handle(child).get::<&Node>().ok().flatten().is_some_and(|node| *node.style().display() != Display::None);
-        if !shown { continue }
-        let start = rows.len();
-        rows_under(world, child, rows, containers);
-        if rows.len() > start { containers.push((child, start..rows.len())); }
-    }
+/// The child of `id` with a `Menu`.
+fn child_menu(world: &World, id: EntityID) -> Option<EntityID> {
+    world.hierarchy().children(id)?.iter().copied().find(|child| world.handle(*child).get::<&Menu>().ok().flatten().is_some())
 }
 
-fn scroll_rows(world: World, input: Res<UiInput>, mut lists: Query<(&'static mut ScrollRows, &'static ComputedNode)>) {
-    while let Ok(Some((id, (mut list, node)))) = lists.next() {
-        let (mut rows, mut containers) = (vec![], vec![]);
-        rows_under(&world, id, &mut rows, &mut containers);
-        list.rows = rows.len();
-        let wheel = if node.contains(input.cursor) { input.wheel } else { 0.0 };
-        let last = rows.len().saturating_sub(list.visible) as f32;
-        list.first = (list.first - wheel * ROWS_PER_NOTCH).clamp(0.0, last);
-        let shown = list.first as usize..list.first as usize + list.visible;
-        let mut hidden = vec![];
-        for (idx, row) in rows.iter().enumerate() {
-            if !shown.contains(&idx) { hidden.push(*row); }
+fn set_menu(world: &World, id: EntityID, change: impl FnOnce(&mut Menu)) {
+    if let Ok(Some(mut menu)) = world.handle(id).get::<&mut Menu>() { change(&mut menu); }
+}
+
+/// Opens context menus and submenus, sends `Activate` for chosen items, closes menus, and places
+/// the open ones on screen.
+fn run_menus(world: World, input: Res<UiInput>, layout: Res<EntityUiElements>, mut menus: Query<&'static Menu>, sent: Event<Activate>) {
+    let mut open = vec![];
+    while let Ok(Some((id, menu))) = menus.next() { if menu.open { open.push(id); } }
+    drop(menus);
+    let computed = |id: EntityID| world.handle(id).get::<&ComputedNode>().ok().flatten().map(|node| *node).filter(|node| node.pass == layout.pass);
+    let close_all = |open: &mut Vec<EntityID>| for id in open.drain(..) { set_menu(&world, id, |menu| menu.open = false); };
+    // a menu closing closes the submenus it holds
+    let close_under = |open: &mut Vec<EntityID>, parent: EntityID, keep: Option<EntityID>| open.retain(|id| {
+        let under = *id != parent && Some(*id) != keep && world.hierarchy().ancestors(*id).any(|ancestor| ancestor == parent);
+        if under { set_menu(&world, *id, |menu| menu.open = false); }
+        !under
+    });
+
+    let over_menu = open.iter().any(|id| computed(*id).is_some_and(|node| node.contains(input.cursor)));
+    let escape = input.keys.iter().any(|(key, _)| matches!(key, winit::keyboard::Key::Named(winit::keyboard::NamedKey::Escape)));
+    if escape || ((input.pressed || input.right_pressed) && !over_menu) { close_all(&mut open); }
+
+    // a chosen item closes every menu
+    let item = |id: EntityID| world.handle(id).get::<&MenuItem>().ok().flatten().map(|item| *item);
+    if let Some(chosen) = input.captured.filter(|id| input.activated(*id))
+        && item(chosen).is_some_and(|item| !item.disabled) && child_menu(&world, chosen).is_none()
+        && menu_of(&world, chosen).is_some_and(|menu| open.contains(&menu)) {
+        sent.send(Activate { entity: chosen });
+        close_all(&mut open);
+    }
+
+    // right clicks open the context menu of the node under the pointer or the nearest above it
+    if input.right_pressed && !over_menu && let Some(hovered) = input.hovered {
+        let target = std::iter::once(hovered).chain(world.hierarchy().ancestors(hovered))
+            .find_map(|id| world.handle(id).get::<&ContextMenu>().ok().flatten().map(|context| (id, *context)));
+        if let Some((target, context)) = target && !context.disabled && let Some(menu) = child_menu(&world, target) {
+            set_menu(&world, menu, |menu| *menu = Menu { open: true, at: input.cursor, item: None });
+            open.push(menu);
         }
-        // containers whose rows are all scrolled away take no room either
-        for (container, range) in containers {
-            if range.end <= shown.start || range.start >= shown.end { hidden.push(container); }
+    }
+
+    // hovering an item of an open menu opens its submenu and closes the others there
+    if let Some(hovered) = input.hovered && item(hovered).is_some_and(|item| !item.disabled)
+        && let Some(parent) = world.hierarchy().parent(hovered).and_then(|parent| menu_of(&world, parent)) && open.contains(&parent) {
+        let submenu = child_menu(&world, hovered);
+        close_under(&mut open, parent, submenu);
+        if let Some(submenu) = submenu && !open.contains(&submenu) {
+            set_menu(&world, submenu, |menu| *menu = Menu { open: true, at: Vec2::ZERO, item: Some(hovered) });
+            open.push(submenu);
         }
-        for row in &hidden { set_display(&world, *row, Display::None); }
-        list.hidden = hidden;
+    }
+
+    // place what's open on screen, using last frame's sizes
+    let scale = input.scale.max(f32::EPSILON);
+    let mut menus = Query::<(&Menu, &mut Node)>::new(&world);
+    while let Ok(Some((id, (menu, mut node)))) = menus.next() {
+        let display = if menu.open { Display::Flex } else { Display::None };
+        if *node.style().display() != display { node.style_mut().set_display(display); }
+        if !menu.open { continue }
+        let size = world.handle(id).get::<&ComputedNode>().ok().flatten().map_or(Vec2::ZERO, |node| node.size);
+        let mut at = menu.at;
+        if let Some(item) = menu.item.and_then(|item| world.handle(item).get::<&ComputedNode>().ok().flatten().map(|node| *node)) {
+            // beside the item, on its left if there's no room on its right
+            at = Vec2::new(item.position.x + item.size.x, item.position.y);
+            if at.x + size.x > input.screen.x { at.x = item.position.x - size.x; }
+        }
+        let at = at.min(input.screen - size).max(Vec2::ZERO) / scale;
+        let edges = Rect::new_top_left(Val::Px(at.y), Val::Px(at.x));
+        if !matches!(node.style().position_type(), PositionType::Fixed(now) if *now == edges) {
+            node.style_mut().set_position_type(PositionType::Fixed(edges));
+        }
     }
 }
 
@@ -639,7 +680,7 @@ mod tests {
     /// Records `id`'s text as drawn at `origin`, as if laid out last frame.
     fn place(world: &World, id: EntityID, text: &str, origin: Vec2) -> std::sync::Arc<crate::ui::TextLayout> {
         let layout = std::sync::Arc::new(font().layout(text, 20.0, None));
-        let placement = crate::ui::TextPlacement { layout: layout.clone(), origin, view_min: origin, view_max: origin + Vec2::new(300.0, 30.0) };
+        let placement = crate::ui::TextPlacement { layout: layout.clone(), origin, view_min: origin, view_max: origin + Vec2::new(300.0, 30.0), clip: Default::default() };
         world.resource_mut::<EntityUiElements>().unwrap().texts.insert(id, placement);
         layout
     }
@@ -738,19 +779,43 @@ mod tests {
     }
 
     #[test]
-    fn scrolling_hides_rows_and_empty_containers() {
+    fn menus_open_close_and_choose() {
         let world = World::default();
-        let row = || UiBundle::new(Node::new()).with(ScrollItem);
-        let list = world.spawn(
-            UiBundle::new(Node::column()).with(ScrollRows::new(2)).children([
-                UiBundle::new(Node::column()).children([row(), row()]),
-                UiBundle::new(Node::column()).children([row(), row()]),
-                UiBundle::new(Node::column().display(Display::None)).children([row()]),
-            ]).into_entity_builder()
-        );
-        let (mut rows, mut containers) = (vec![], vec![]);
-        rows_under(&world, list, &mut rows, &mut containers);
-        assert_eq!(rows.len(), 4);
-        assert_eq!(containers.iter().map(|(_, range)| range.clone()).collect::<Vec<_>>(), vec![0..2, 2..4]);
+        let item = |name: &str| UiBundle::new(Node::new()).with(MenuItem::default()).interactive().named(name);
+        let submenu = UiBundle::new(Node::new()).with(Menu::default()).named("submenu").child(item("c"));
+        let menu = UiBundle::new(Node::new()).with(Menu::default()).named("menu").children([item("a"), item("b").child(submenu)]);
+        let target = world.spawn(UiBundle::new(Node::new()).interactive().context_menu(menu).into_entity_builder());
+        let find = |name: &str| crate::ui::find_named(&world, target, name).unwrap();
+        let (menu, submenu, a, b, c) = (find("menu"), find("submenu"), find("a"), find("b"), find("c"));
+        let open = |id: EntityID| world.handle(id).get::<&Menu>().unwrap().unwrap().open;
+        // away from the nodes, which were never laid out
+        let input = |hovered: Option<EntityID>| UiInput { cursor: Vec2::splat(500.0), hovered, scale: 1.0, ..Default::default() };
+
+        world.insert_resource(UiInput { right_pressed: true, ..input(Some(target)) });
+        run(&world, run_menus);
+        assert!(open(menu) && !open(submenu));
+        assert_eq!(*world.handle(menu).get::<&Node>().unwrap().unwrap().style().display(), Display::Flex);
+        // hovering an item opens its submenu, hovering another closes it
+        world.insert_resource(input(Some(b)));
+        run(&world, run_menus);
+        assert!(open(submenu));
+        world.insert_resource(input(Some(a)));
+        run(&world, run_menus);
+        assert!(!open(submenu));
+
+        // choosing an item in the submenu closes them all
+        world.insert_resource(input(Some(b)));
+        run(&world, run_menus);
+        world.insert_resource(UiInput { released: true, captured: Some(c), ..input(Some(c)) });
+        run(&world, run_menus);
+        assert_eq!(world.resource::<Seen>().unwrap().activated, vec![c]);
+        assert!(!open(menu) && !open(submenu));
+
+        // so does a press anywhere else
+        world.insert_resource(UiInput { right_pressed: true, ..input(Some(target)) });
+        run(&world, run_menus);
+        world.insert_resource(UiInput { pressed: true, ..input(None) });
+        run(&world, run_menus);
+        assert!(!open(menu));
     }
 }

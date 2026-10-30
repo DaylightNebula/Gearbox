@@ -8,7 +8,7 @@ use magician_vgpu::glam::{Vec2, Vec4};
 use mutual::{CowData, RefCowData, SharedData};
 
 use crate::ui::{
-    Outline, SDFFont, UINodeEndHoverEvent, UINodePressedEvent, UINodeReleasedEvent, UINodeStartHoverEvent,
+    ClipRect, Outline, SDFFont, Scrolled, UINodeEndHoverEvent, UINodePressedEvent, UINodeReleasedEvent, UINodeStartHoverEvent,
 };
 
 /// Called with a node's new interaction whenever it changes.
@@ -181,7 +181,15 @@ pub struct Style {
     /// a root. Its margins keep it in from the edges it's pinned to.
     anchor: Option<Anchor>,
     background: Background,
-    overflow: Overflow,
+    /// What happens to content wider than the node.
+    overflow_x: Overflow,
+    /// What happens to content taller than the node.
+    overflow_y: Overflow,
+    /// How far scrolled content is moved up and left, for `Overflow::Scroll` and `Overflow::Auto`
+    /// axes. Laying out keeps it within what the content allows.
+    scroll: Vec2,
+    /// How the scrollbars look.
+    scrollbar: Scrollbar,
     text: Option<Text>,
     /// Width over height, used when only one of them is set. 0 matches the window's.
     aspect_ratio: Option<f32>,
@@ -231,7 +239,10 @@ impl Default for Style {
             position_type: PositionType::default(),
             anchor: None,
             background: Background::default(),
-            overflow: Overflow::default(),
+            overflow_x: Overflow::default(),
+            overflow_y: Overflow::default(),
+            scroll: Vec2::ZERO,
+            scrollbar: Scrollbar::default(),
             text: None,
             aspect_ratio: None,
             width: Val::Auto,
@@ -296,6 +307,16 @@ impl Style {
         self
     }
 
+    /// Sets `overflow_x` and `overflow_y`.
+    pub fn set_overflow(&mut self, overflow: Overflow) -> &mut Self {
+        self.overflow_x = overflow;
+        self.overflow_y = overflow;
+        self
+    }
+
+    /// Whether content can scroll along either axis.
+    pub fn scrolls(&self) -> bool { self.overflow_x.scrolls() || self.overflow_y.scrolls() }
+
     /// The text to change in place, if the node has any.
     pub fn text_mut(&mut self) -> Option<&mut Text> { self.text.as_mut() }
 
@@ -318,7 +339,10 @@ impl Style {
         style.margin = style.margin.scaled(factor);
         style.padding = style.padding.scaled(factor);
         style.border_radius = style.border_radius.scaled(factor);
-        if let PositionType::Absolute(edges) = &mut style.position_type { *edges = edges.scaled(factor); }
+        if let PositionType::Absolute(edges) | PositionType::Fixed(edges) = &mut style.position_type { *edges = edges.scaled(factor); }
+        style.scroll *= factor;
+        style.scrollbar.width *= factor;
+        style.scrollbar.gap *= factor;
         if let Some(text) = &mut style.text {
             text.font_size *= factor;
             text.scroll *= factor;
@@ -336,6 +360,10 @@ pub enum PositionType {
     /// Taken out of the flow and placed by its offsets from the parent's edges, `Val::Auto`
     /// edges left unset. Setting both opposite edges stretches the node between them.
     Absolute(Rect),
+    /// Placed by its offsets from the window's edges like `Absolute`, and drawn over the other
+    /// roots like one, so its parents don't cut it off: for menus and popups that belong to a
+    /// widget. Like CSS `position: fixed`.
+    Fixed(Rect),
 }
 
 /// Part of its parent a node is pinned to, taking it out of the flow. Roots are pinned to the
@@ -363,11 +391,54 @@ pub enum Anchor {
     Fill,
 }
 
-#[derive(Default, Debug, Clone, Copy, Hash)]
+/// What happens to a node's content where it doesn't fit, along one axis.
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Overflow {
+    /// Cut off at the node's edges.
     #[default]
     Clip,
-    Allow,
+    /// Cut off inside the border and scrolled, with room always kept for a scrollbar, like CSS
+    /// `overflow: scroll`. The node can shrink below its content.
+    Scroll,
+    /// Like `Scroll`, but the scrollbar and its room only appear while the content doesn't fit,
+    /// like CSS `overflow: auto`.
+    Auto,
+}
+
+impl Overflow {
+    /// Whether content can scroll along this axis.
+    pub fn scrolls(self) -> bool { matches!(self, Overflow::Scroll | Overflow::Auto) }
+}
+
+/// How a node's scrollbars look. Each takes `width + gap` from the node's padding box along its
+/// edge: right for the vertical bar, bottom for the horizontal one.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Scrollbar {
+    /// Thickness of the track and thumb.
+    pub width: f32,
+    /// Room between the content and the track.
+    pub gap: f32,
+    pub track: Vec4,
+    pub thumb: Vec4,
+    /// The thumb while the pointer is over the node or dragging it.
+    pub thumb_hovered: Vec4,
+}
+
+impl Scrollbar {
+    /// Room a bar takes across its edge.
+    pub fn room(&self) -> f32 { self.width + self.gap }
+}
+
+impl Default for Scrollbar {
+    fn default() -> Self {
+        Self {
+            width: 8.0,
+            gap: 0.0,
+            track: Vec4::new(0.0, 0.0, 0.0, 0.25),
+            thumb: Vec4::new(0.3, 0.3, 0.3, 1.0),
+            thumb_hovered: Vec4::new(0.5, 0.5, 0.5, 1.0),
+        }
+    }
 }
 
 /// How a node lays out its children.
@@ -619,6 +690,10 @@ pub struct LastState {
     pub position: Vec2,
     pub size: Vec2,
     pub interaction: Interaction,
+    /// The part of the window it shows in, where its ancestors don't cut it off.
+    pub clip: ClipRect,
+    /// Where its content scrolled, if it scrolls.
+    pub scroll: Option<Scrolled>,
 }
 
 /// How the pointer is interacting with a node. As a component it makes an entity node

@@ -53,6 +53,7 @@ impl Plugin for UIPlugin {
             .on_render_update_with(read_ui_input, pin(SystemPin::Start))
             .on_render_update_with(pick_ui, and(pin(SystemPin::Start), after(read_ui_input)))
             .on_render_update_with(hover_text_spans, and(pin(SystemPin::Start), after(pick_ui)))
+            .on_render_update_with(scroll_nodes, and(pin(SystemPin::Start), after(pick_ui)))
             // drawn over the main pass, which runs in the `Normal` pin
             .on_render_update_with(layout_entity_ui, and(pin(SystemPin::End), before(ui_render_pass)))
             .on_render_update_with(ui_render_pass, pin(SystemPin::End))

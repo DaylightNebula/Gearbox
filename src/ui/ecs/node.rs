@@ -4,7 +4,7 @@ use anarchy::{Component, DynComponent, EntityBuilder, EntityID, World, next_enti
 use magician_vgpu::glam::{Vec2, Vec4};
 
 use crate::ui::{
-    AlignItems, Anchor, Background, Display, FlexWrap, Interaction, JustifyContent, Outline, PositionType, Rect, RectCorners,
+    AlignItems, Anchor, Background, ClipRect, ContextMenu, Overflow, Scrollbar, Scrolled, Display, FlexWrap, Interaction, JustifyContent, Outline, PositionType, Rect, RectCorners,
     Style, Text, TextSpan, ThemeOverride, Val,
 };
 
@@ -97,6 +97,22 @@ impl Node {
 
     pub fn z_index(mut self, z_index: i32) -> Self { self.0.set_z_index(z_index); self }
 
+    /// Sets what happens to content that doesn't fit along both axes, see `Overflow`.
+    pub fn overflow(mut self, overflow: Overflow) -> Self { self.0.set_overflow(overflow); self }
+
+    /// Sets what happens to content wider than the node, see `Overflow`.
+    pub fn overflow_x(mut self, overflow: Overflow) -> Self { self.0.set_overflow_x(overflow); self }
+
+    /// Sets what happens to content taller than the node, see `Overflow`.
+    pub fn overflow_y(mut self, overflow: Overflow) -> Self { self.0.set_overflow_y(overflow); self }
+
+    /// How the node's scrollbars look, sizes in logical pixels.
+    pub fn scrollbar(mut self, scrollbar: Scrollbar) -> Self { self.0.set_scrollbar(scrollbar); self }
+
+    /// Places the node by its offsets from the window's edges and draws it over the other roots,
+    /// so its parents don't cut it off, see `PositionType::Fixed`.
+    pub fn fixed(mut self, edges: Rect) -> Self { self.0.set_position_type(PositionType::Fixed(edges)); self }
+
     pub fn display(mut self, display: Display) -> Self { self.0.set_display(display); self }
 
     pub fn text(mut self, text: Text) -> Self { self.0.set_text(Some(text)); self }
@@ -113,11 +129,16 @@ pub struct ComputedNode {
     pub pass: u64,
     /// It has a background, so the pointer over it is over the UI.
     pub opaque: bool,
+    /// The part of the window it shows in, where its ancestors don't cut it off.
+    pub clip: ClipRect,
+    /// Where its content scrolled, if it scrolls.
+    pub scroll: Option<Scrolled>,
 }
 
 impl ComputedNode {
+    /// Whether `point` is over the part of the node that shows.
     pub fn contains(&self, point: Vec2) -> bool {
-        point.cmpge(self.position).all() && point.cmple(self.position + self.size).all()
+        point.cmpge(self.position).all() && point.cmple(self.position + self.size).all() && self.clip.contains(point)
     }
 }
 
@@ -156,6 +177,10 @@ impl UiBundle {
 
     /// Append an iterator of children to this bundle.
     pub fn children(mut self, children: impl IntoIterator<Item = UiBundle>) -> Self { self.children.extend(children); self }
+
+    /// Opens `menu`, a bundle with a `Menu` like `themed::menu`, at the pointer when the node is
+    /// right clicked. The node needs an `Interaction`, see `interactive`.
+    pub fn context_menu(self, menu: UiBundle) -> Self { self.with(ContextMenu::default()).child(menu) }
 
     /// Spawns the node under `id`, for widgets that need their parts' ids before spawning.
     pub fn with_id(mut self, id: EntityID) -> Self { self.id = Some(id); self }

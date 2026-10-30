@@ -144,7 +144,7 @@ behavior-only and themed widgets), and immediate mode (`Widget`/`Ui`).
 | `fonts/` | `SDFFont`: text measuring, cached glyph outlines as bezier SDFs, an ASCII advance table; `fonts/layout.rs` is `TextLayout` (lines, wrapping, hit testing, caret and range boxes), shared by measuring, drawing, carets and hovers |
 | `edit.rs` | `TextEditor` (caret, selection, word/line moves, undo, clipboard shortcuts), `field_shows`, `follow_caret`, span remapping (`text_change`, `remap_spans`); shared by `TextInput` and immediate fields |
 | `widgets.rs` | Immediate mode (`WidgetPlugin`, `Widget`, `Ui`), `Theme`, `srgb`, and the size constants themed widgets share |
-| `ecs/` | Entity UI: `node.rs` (`Node`, `UiBundle`, `into_entity_builder`), `layout.rs` (also records each node's `TextPlacement` in `EntityUiElements::texts`), `picking.rs` (also `hover_text_spans`/`TextHover`), `input.rs` (`UiInput`, `UiFocus`, `UiTheme`, `ThemeOverride`), `controls.rs` (behavior-only widgets, system tests), `themed.rs` (`themed::` builders, `restyle_themed`) |
+| `ecs/` | Entity UI: `node.rs` (`Node`, `UiBundle`, `into_entity_builder`), `layout.rs` (also records each node's `TextPlacement` in `EntityUiElements::texts`), `picking.rs` (also `hover_text_spans`/`TextHover`; scrollbars hide what's under them), `scroll.rs` (`scroll_nodes`: wheel, thumb drags, track pages), `input.rs` (`UiInput`, `UiFocus`, `UiTheme`, `ThemeOverride`), `controls.rs` (behavior-only widgets, context menus in `run_menus`, system tests), `themed.rs` (`themed::` builders, `restyle_themed`) |
 
 Frame order, by render pin:
 1. **`Start`:** `read_ui_input` fills `UiInput`; `widgets_begin` hit tests last frame's
@@ -159,7 +159,10 @@ UI gotchas:
 - **Parity.** `ui_entity_widgets` and `ui_widgets` must render identical pixels. When a widget
   changes, change both `Ui` and its `themed::` builder or restyle arm, then diff screenshots of
   the two with `python3 -I scripts/pngdiff.py a.png b.png`. Themed parts are found by child
-  index, so changing a builder's children means updating its restyle arm too.
+  index, so changing a builder's children means updating its restyle arm too. The Greet
+  button's context menu covers menus: right click it from a throwaway driver (see Input in
+  headless runs) and diff both. Immediate windows opened while building another (submenus) are
+  inserted after it, to stack like entity `Fixed` nodes.
 - **Defaults differ from CSS:** `flex_direction` is `Column`, `Auto` margins, padding, borders
   and gaps are 0, and borders take room inside the size. `Percent` is parent-relative,
   `PercentWidth`/`PercentHeight` window-relative.
@@ -167,9 +170,21 @@ UI gotchas:
   `UINodeSDFRoot` trees aren't, and immediate mode scales itself through `px()`.
 - **Style setters** (`getset`) return `&mut Style`, so closures calling them need braces.
   `Node` deliberately doesn't deref to `Style`.
-- **Clipping:** `Overflow::Clip` isn't implemented, but the shader skips an element's children
-  wherever a pixel is outside the element, so `Text::clip` wraps text in an element the size of
-  the content box. Lists hide rows instead.
+- **Clipping:** the shader skips an element's children wherever a pixel is outside the element,
+  so children are always cut off at their parent's box (`Overflow::Clip`). Scrolling nodes wrap
+  their children and text in an empty element the size of the view, then add the bars after
+  it; `Text::clip` does the same with the content box. `Emit::element` passes the clip box
+  down, records it in `LaidOut::clip` (picking checks it through `ComputedNode::contains`), and
+  leaves out children and text lines entirely outside it.
+- **Scrolling:** `Overflow::Auto` starts as taffy `Hidden` and becomes `Scroll` (reserving the
+  gutter) once `add_auto_scrollbars` finds it overflowing, then layout runs again, at most three
+  times. Bar geometry (`Scrolled`, `thumb_rect`, `offset_at`) is shared by drawing, entity input
+  (`ecs/scroll.rs`) and immediate mode's `scroll_offset`.
+- **`Fixed` nodes** are lifted out of their parents to the roots (`lift` in `nodes/render.rs`),
+  before their own fixed descendants so submenus draw over menus, and dropped under hidden
+  nodes. Context menus rely on this to escape scroll areas.
+- **Text measuring:** taffy hands the measure function the node's whole width as `known.width`;
+  `TextMeasure::inset` takes the padding and border off before wrapping.
 - **Buffer limits:** every glyph is one element. Where `max_storage_buffers_per_shader_stage`
   allows, the SDF buffers are storage buffers (`MAX_STORAGE_ELEMENTS`, 16 bit pointers);
   otherwise (WebGL2) uniform arrays (`MAX_BUFFER_ELEMENTS`, less under WebGL). Test both: force

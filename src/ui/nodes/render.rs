@@ -12,8 +12,8 @@ use taffy::{
 
 use crate::ui::{
     AlignContent, AlignItems, Anchor, Background, Display, FlexDirection, FlexWrap, Interaction,
-    JustifyContent, LastState, Outline, PositionType, Rect, SDFElement, SDFFont, SDFRectangle, SDFShape,
-    SDFStyle, Style, Text, TextLayout, UIInputTracker, UINode, UnderlineStyle, Val,
+    JustifyContent, LastState, Outline, Overflow, PositionType, Rect, SDFElement, SDFFont, SDFRectangle, SDFShape,
+    SDFStyle, Scrollbar, Style, Text, TextLayout, UIInputTracker, UINode, UnderlineStyle, Val,
     nodes::Align,
 };
 
@@ -43,16 +43,17 @@ pub fn layout_children(
     available: Vec2,
     display_size: [f32; 2],
 ) -> Vec<SDFElement> {
-    layout_tree(nodes, origin, available, display_size, &mut |node: &UINode, laid_out| {
+    let cursor = input_tracker.cursor_position;
+    layout_tree(nodes, origin, available, display_size, Some(cursor), &mut |node: &UINode, laid_out| {
         let (min, max) = (laid_out.top_left, laid_out.top_left + laid_out.size);
-        let cursor = input_tracker.cursor_position;
-        let is_hover = cursor.cmpge(min).all() && cursor.cmple(max).all();
+        let is_hover = ClipRect::new(min, max).contains(cursor) && laid_out.clip.contains(cursor);
         let interaction = match (is_hover, input_tracker.is_cursor_down) {
             (true, true) => Interaction::Pressed,
             (true, false) => Interaction::Hovered,
             (false, _) => Interaction::None,
         };
-        node.set_last_state(world, LastState { position: min + laid_out.size * 0.5, size: laid_out.size, interaction });
+        let state = LastState { position: min + laid_out.size * 0.5, size: laid_out.size, interaction, clip: laid_out.clip, scroll: laid_out.scroll };
+        node.set_last_state(world, state);
     })
 }
 
@@ -76,6 +77,97 @@ pub(crate) struct LaidOut {
     pub stack: u32,
     /// Where its text went.
     pub text: Option<TextPlacement>,
+    /// The part of the window it shows in, where its ancestors don't cut it off.
+    pub clip: ClipRect,
+    /// Where its content scrolled, if it scrolls.
+    pub scroll: Option<Scrolled>,
+}
+
+/// An axis aligned box in window pixels, empty when `min` passes `max` on either axis.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ClipRect {
+    pub min: Vec2,
+    pub max: Vec2,
+}
+
+impl Default for ClipRect {
+    fn default() -> Self { Self::EVERYWHERE }
+}
+
+impl ClipRect {
+    /// Holds every point.
+    pub const EVERYWHERE: Self = Self { min: Vec2::splat(f32::MIN), max: Vec2::splat(f32::MAX) };
+
+    pub fn new(min: Vec2, max: Vec2) -> Self { Self { min, max } }
+
+    pub fn contains(&self, point: Vec2) -> bool { point.cmpge(self.min).all() && point.cmple(self.max).all() }
+
+    /// The part inside both.
+    pub fn intersect(&self, other: ClipRect) -> ClipRect { ClipRect::new(self.min.max(other.min), self.max.min(other.max)) }
+
+    /// Whether some of the box `min..max` is inside.
+    pub fn overlaps(&self, min: Vec2, max: Vec2) -> bool { min.cmple(self.max).all() && max.cmpge(self.min).all() }
+
+    pub fn size(&self) -> Vec2 { (self.max - self.min).max(Vec2::ZERO) }
+}
+
+/// Where a scrolling node's content went, in window pixels.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Scrolled {
+    /// The box the content shows in: inside the border, less the scrollbars.
+    pub view: ClipRect,
+    /// How far the content is scrolled up and left, within `max`.
+    pub offset: Vec2,
+    /// Farthest the content can scroll, 0 along axes that don't scroll or fit.
+    pub max: Vec2,
+    /// The horizontal (index 0) and vertical (index 1) scrollbars, where shown.
+    pub bars: [Option<ScrollbarRects>; 2],
+}
+
+/// Where a scrollbar was drawn.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ScrollbarRects {
+    pub track: ClipRect,
+    /// Missing while there's nothing to scroll.
+    pub thumb: Option<ClipRect>,
+}
+
+impl Scrolled {
+    /// The scroll offset along `axis` (0 for x, 1 for y) that puts the start of the thumb at
+    /// `thumb_start`, for dragging it.
+    pub fn offset_at(&self, axis: usize, thumb_start: f32) -> f32 {
+        let Some(ScrollbarRects { track, thumb: Some(thumb) }) = self.bars[axis] else { return self.offset[axis] };
+        let free = track.size()[axis] - thumb.size()[axis];
+        if free <= 0.0 { return 0.0 }
+        ((thumb_start - track.min[axis]) / free).clamp(0.0, 1.0) * self.max[axis]
+    }
+
+    /// These bars cut down to `clip`, where they can be grabbed.
+    pub fn clipped(mut self, clip: ClipRect) -> Self {
+        for bar in self.bars.iter_mut().flatten() {
+            bar.track = bar.track.intersect(clip);
+            if let Some(thumb) = &mut bar.thumb { *thumb = thumb.intersect(clip); }
+        }
+        self
+    }
+
+    /// The scrollbar along `axis` that holds `point`.
+    pub fn bar_at(&self, point: Vec2) -> Option<(usize, ScrollbarRects)> {
+        (0..2).find_map(|axis| self.bars[axis].filter(|bar| bar.track.contains(point)).map(|bar| (axis, bar)))
+    }
+}
+
+/// The thumb in `track` along `axis` for content scrolled `offset` of `max`, shown in `view`
+/// pixels, at least `min_length` long.
+fn thumb_rect(track: ClipRect, axis: usize, view: f32, max: f32, offset: f32, min_length: f32) -> Option<ClipRect> {
+    if max <= 0.0 { return None }
+    let length = track.size()[axis];
+    let thumb = (length * view / (view + max)).max(min_length).min(length);
+    let start = track.min[axis] + (length - thumb) * (offset / max).clamp(0.0, 1.0);
+    let mut rect = track;
+    rect.min[axis] = start;
+    rect.max[axis] = start + thumb;
+    Some(rect)
 }
 
 /// Lays `nodes` out as a column in the `available` pixels at `origin` like `layout_children`,
@@ -85,34 +177,77 @@ pub(crate) fn layout_tree<T: LayoutTree>(
     origin: Vec2,
     available: Vec2,
     display_size: [f32; 2],
+    cursor: Option<Vec2>,
     on_node: &mut dyn FnMut(&T, LaidOut),
 ) -> Vec<SDFElement> {
+    // `Fixed` nodes are laid out and drawn as roots
+    let mut lifted = vec![];
+    let mut roots: Vec<Lifted<T>> = nodes.iter().map(|node| lift(node, &mut lifted, false)).collect();
+    roots.extend(lifted);
+
     let mut layout = Layout { tree: TaffyTree::new(), display_size };
     // fractional positions, as the SDFs are antialiased anyway
     layout.tree.disable_rounding();
-    let roots = nodes.iter().map(|node| layout.build(node)).collect::<Vec<_>>();
+    let built = roots.iter().map(|node| layout.build(node)).collect::<Vec<_>>();
     let parent = taffy::Style {
         flex_direction: taffy::FlexDirection::Column,
         size: taffy::Size { width: length(available.x), height: length(available.y) },
         ..Default::default()
     };
-    let Ok(viewport) = layout.tree.new_with_children(parent, &roots.iter().map(Built::outer).collect::<Vec<_>>()) else { return vec![] };
+    let Ok(viewport) = layout.tree.new_with_children(parent, &built.iter().map(Built::outer).collect::<Vec<_>>()) else { return vec![] };
     let space = taffy::Size { width: AvailableSpace::Definite(available.x), height: AvailableSpace::Definite(available.y) };
-    let computed = layout.tree.compute_layout_with_measure(viewport, space, |inputs, _, context, style| {
-        taffy::compute_leaf_layout(inputs, style, |_, _| 0.0, |known, available| {
-            let measured = context.map_or(Vec2::ZERO, |text| {
-                let wrap = text.wrap.then(|| known.width.or(available.width.into_option())).flatten();
-                text.font.layout(&text.content, text.font_size, wrap).size()
-            });
-            taffy::Size { width: known.width.unwrap_or(measured.x), height: known.height.unwrap_or(measured.y) }
-        })
-    });
-    if let Err(err) = computed {
-        log::error!("Failed to lay out the UI: {err}");
-        return vec![];
+    // `Overflow::Auto` nodes get scrollbars where their content overflows, which can make more
+    // content overflow, so lay out again until no more bars appear
+    for _ in 0..3 {
+        let computed = layout.tree.compute_layout_with_measure(viewport, space, |inputs, _, context, style| {
+            taffy::compute_leaf_layout(inputs, style, |_, _| 0.0, |known, available| {
+                let measured = context.map_or(Vec2::ZERO, |text| {
+                    // a known width is the whole node's, available space is already inside it
+                    let wrap = text.wrap.then(|| known.width.map(|width| width - text.inset).or(available.width.into_option())).flatten();
+                    text.font.layout(&text.content, text.font_size, wrap.map(|width| width.max(0.0))).size()
+                });
+                taffy::Size { width: known.width.unwrap_or(measured.x), height: known.height.unwrap_or(measured.y) }
+            })
+        });
+        if let Err(err) = computed {
+            log::error!("Failed to lay out the UI: {err}");
+            return vec![];
+        }
+        let mut added = false;
+        for (node, built) in roots.iter().zip(&built) { added |= layout.add_auto_scrollbars(node, built); }
+        if !added { break }
     }
-    let mut emit = Emit { tree: &layout.tree, display_size, on_node, stack: 0 };
-    paint_order(nodes, &roots).into_iter().filter_map(|(node, built)| emit.element(node, built, origin)).collect()
+    let mut emit = Emit { tree: &layout.tree, display_size, cursor, on_node, stack: 0 };
+    let window = ClipRect::new(Vec2::ZERO, Vec2::from_array(display_size));
+    paint_order(&roots, &built).into_iter().filter_map(|(node, built)| emit.element(node, built, origin, window)).collect()
+}
+
+/// A node to lay out, with its `Fixed` descendants moved to the roots.
+struct Lifted<'a, T> {
+    node: &'a T,
+    children: Vec<Lifted<'a, T>>,
+}
+
+impl<T: LayoutTree> Lifted<'_, T> {
+    fn style(&self) -> &Style { self.node.style() }
+}
+
+/// `node` with its `Fixed` descendants moved into `lifted`, or dropped if `hidden` (inside a
+/// hidden node).
+fn lift<'a, T: LayoutTree>(node: &'a T, lifted: &mut Vec<Lifted<'a, T>>, hidden: bool) -> Lifted<'a, T> {
+    let hidden = hidden || *node.style().display() == Display::None;
+    let mut children = vec![];
+    for child in node.children() {
+        // a lifted node goes before the ones lifted out of it, so it's drawn under them
+        let mut inner = vec![];
+        let child_lifted = lift(child, &mut inner, hidden);
+        match child.style().position_type() {
+            PositionType::Fixed(_) => if !hidden { lifted.push(child_lifted) },
+            _ => children.push(child_lifted),
+        }
+        lifted.extend(inner);
+    }
+    Lifted { node, children }
 }
 
 /// Text a leaf is measured by.
@@ -121,6 +256,8 @@ struct TextMeasure {
     content: String,
     font_size: f32,
     wrap: bool,
+    /// Padding and border across the node, in pixels.
+    inset: f32,
 }
 
 /// The taffy tree mirroring the nodes being laid out.
@@ -132,6 +269,8 @@ struct Layout {
 /// Where a `UINode` and its children went in the taffy tree.
 struct Built {
     node: NodeId,
+    /// Axes with `Overflow::Auto`, x then y.
+    auto: [bool; 2],
     /// Fills the parent to place an anchored node in it.
     anchor: Option<NodeId>,
     children: Vec<Built>,
@@ -144,13 +283,16 @@ impl Built {
 
 impl Layout {
     /// Adds `node` and its children to the tree.
-    fn build<T: LayoutTree>(&mut self, node: &T) -> Built {
-        let children: Vec<Built> = node.children().iter().map(|child| self.build(child)).collect();
-        let mut style = self.style(node.style(), node.children());
+    fn build<T: LayoutTree>(&mut self, node: &Lifted<T>) -> Built {
+        let children: Vec<Built> = node.children.iter().map(|child| self.build(child)).collect();
+        let mut style = self.style(node.style(), &node.children);
         let anchor = *node.style().anchor();
         if let Some(anchor) = anchor { anchored(&mut style, anchor); }
         let id = if let Some(text) = node.style().text().as_ref().filter(|_| children.is_empty()) {
-            let measure = TextMeasure { font: text.font.clone(), content: text.content.clone(), font_size: text.font_size, wrap: text.wrap };
+            let room = |val: Val| val.eval(&self.display_size).unwrap_or(0.0);
+            let padding = node.style().padding();
+            let inset = room(*padding.left()) + room(*padding.right()) + 2.0 * room(*node.style().border());
+            let measure = TextMeasure { font: text.font.clone(), content: text.content.clone(), font_size: text.font_size, wrap: text.wrap, inset };
             self.tree.new_leaf_with_context(style, measure)
         } else {
             self.tree.new_with_children(style, &children.iter().map(Built::outer).collect::<Vec<_>>())
@@ -160,11 +302,32 @@ impl Layout {
         let anchor = anchor.map(|anchor| {
             self.tree.new_with_children(anchor_frame(anchor), &[id]).expect("taffy rejected a new node")
         });
-        Built { node: id, anchor, children }
+        let auto = [*node.style().overflow_x() == Overflow::Auto, *node.style().overflow_y() == Overflow::Auto];
+        Built { node: id, auto, children, anchor }
+    }
+
+    /// Gives `Overflow::Auto` axes of `node` and its children whose content overflows a
+    /// scrollbar, returning whether any got one.
+    fn add_auto_scrollbars<T: LayoutTree>(&mut self, node: &Lifted<T>, built: &Built) -> bool {
+        let mut added = false;
+        for (child, child_built) in node.children.iter().zip(&built.children) { added |= self.add_auto_scrollbars(child, child_built); }
+        if !built.auto.contains(&true) { return added }
+        let (Ok(layout), Ok(style)) = (self.tree.layout(built.node), self.tree.style(built.node)) else { return added };
+        let overflowing = content_overflow(layout, style);
+        let mut style = style.clone();
+        let mut changed = false;
+        for (auto, overflows, axis) in [(built.auto[0], overflowing.x, &mut style.overflow.x), (built.auto[1], overflowing.y, &mut style.overflow.y)] {
+            if auto && overflows > 0.5 && *axis != taffy::Overflow::Scroll {
+                *axis = taffy::Overflow::Scroll;
+                changed = true;
+            }
+        }
+        if changed && self.tree.set_style(built.node, style).is_ok() { added = true; }
+        added
     }
 
     /// `style` in taffy's terms, `children` being the node's.
-    fn style<T: LayoutTree>(&self, style: &Style, children: &[T]) -> taffy::Style {
+    fn style<T: LayoutTree>(&self, style: &Style, children: &[Lifted<T>]) -> taffy::Style {
         let display_size = self.display_size;
         let dimension = |val: Val| match val {
             Val::Auto => auto(),
@@ -194,7 +357,13 @@ impl Layout {
         };
         let (position, inset) = match style.position_type() {
             PositionType::Relative => (taffy::Position::Relative, taffy::Rect::auto()),
-            PositionType::Absolute(edges) => (taffy::Position::Absolute, rect(edges, &offset)),
+            PositionType::Absolute(edges) | PositionType::Fixed(edges) => (taffy::Position::Absolute, rect(edges, &offset)),
+        };
+        // `Auto` axes start without a scrollbar, see `add_auto_scrollbars`
+        let overflow = |overflow: Overflow| match overflow {
+            Overflow::Clip => taffy::Overflow::Visible,
+            Overflow::Scroll => taffy::Overflow::Scroll,
+            Overflow::Auto => taffy::Overflow::Hidden,
         };
         let border = room(*style.border());
         let padding = style.padding();
@@ -233,6 +402,8 @@ impl Layout {
             flex_grow: *style.flex_grow(),
             flex_shrink: *style.flex_shrink(),
             flex_basis: dimension(*style.flex_basis()),
+            overflow: taffy::Point { x: overflow(*style.overflow_x()), y: overflow(*style.overflow_y()) },
+            scrollbar_width: style.scrollbar().room(),
             ..Default::default()
         };
         if *style.display() == Display::Grid {
@@ -324,17 +495,35 @@ fn align_content(align: AlignContent) -> taffy::AlignContent {
 
 /// `nodes` paired with where they were built in paint order: by `z_index`, and among equal ones
 /// nodes in the flow first, so anchored and absolute ones go on top.
-fn paint_order<'a, T: LayoutTree>(nodes: &'a [T], built: &'a [Built]) -> Vec<(&'a T, &'a Built)> {
-    let mut order: Vec<(&T, &Built)> = nodes.iter().zip(built).collect();
+fn paint_order<'a, 'n, T: LayoutTree>(nodes: &'a [Lifted<'n, T>], built: &'a [Built]) -> Vec<(&'a Lifted<'n, T>, &'a Built)> {
+    let mut order: Vec<(&Lifted<T>, &Built)> = nodes.iter().zip(built).collect();
     // stable, so siblings keep their order otherwise
     order.sort_by_key(|(node, _)| (*node.style().z_index(), !in_flow(node.style())));
     order
+}
+
+/// Room taken by a node's scrollbars: across x by the vertical one, across y by the horizontal
+/// one.
+fn bar_room(style: &taffy::Style) -> Vec2 {
+    let room = |overflow: taffy::Overflow| if overflow == taffy::Overflow::Scroll { style.scrollbar_width } else { 0.0 };
+    Vec2::new(room(style.overflow.y), room(style.overflow.x))
+}
+
+/// How far the content of a node laid out as `layout` passes its padding box, less its
+/// scrollbars, along each axis.
+fn content_overflow(layout: &taffy::Layout, style: &taffy::Style) -> Vec2 {
+    let border = Vec2::new(layout.border.left + layout.border.right, layout.border.top + layout.border.bottom);
+    let view = Vec2::new(layout.size.width, layout.size.height) - border - bar_room(style);
+    let content = Vec2::new(layout.scrollable_overflow_rect.right, layout.scrollable_overflow_rect.bottom);
+    (content - view).max(Vec2::ZERO)
 }
 
 /// Turns laid out nodes into elements.
 struct Emit<'a, T> {
     tree: &'a TaffyTree<TextMeasure>,
     display_size: [f32; 2],
+    /// Lights the scrollbar thumbs of nodes under it.
+    cursor: Option<Vec2>,
     on_node: &'a mut dyn FnMut(&T, LaidOut),
     /// Paint order of the next node.
     stack: u32,
@@ -342,8 +531,9 @@ struct Emit<'a, T> {
 
 impl <T: LayoutTree> Emit<'_, T> {
     /// The element of `node`, whose parent's top left corner is at `parent`, or `None` if it's
-    /// hidden.
-    fn element(&mut self, node: &T, built: &Built, parent: Vec2) -> Option<SDFElement> {
+    /// hidden. Parts outside `clip` are left out.
+    fn element(&mut self, lifted: &Lifted<T>, built: &Built, parent: Vec2, clip: ClipRect) -> Option<SDFElement> {
+        let node = lifted.node;
         let style = node.style();
         if *style.display() == Display::None { return None }
         let parent = match built.anchor {
@@ -362,21 +552,34 @@ impl <T: LayoutTree> Emit<'_, T> {
             padding.left + border.left,
             padding.right + border.right,
         ];
+        let own = ClipRect::new(top_left, top_left + dimensions);
+        let scrolled = self.scrolled(style, built, layout, own);
+        let offset = scrolled.map_or(Vec2::ZERO, |scrolled| scrolled.offset);
+        let inner = clip.intersect(scrolled.map_or(own, |scrolled| scrolled.view));
         let (text, placement) = match style.text() {
             Some(text) => {
-                let (element, placement) = build_text_element(text, insets, top_left, dimensions, self.display_size);
+                let (element, placement) = build_text_element(text, insets, top_left - offset, dimensions, self.display_size, inner);
                 (element, Some(placement))
             }
             None => (None, None),
         };
-        (self.on_node)(node, LaidOut { top_left, size: dimensions, stack: self.stack, text: placement });
+        let scroll = scrolled.map(|scrolled| scrolled.clipped(clip));
+        (self.on_node)(node, LaidOut { top_left, size: dimensions, stack: self.stack, text: placement, clip, scroll });
         self.stack += 1;
 
-        let mut children: Vec<SDFElement> = paint_order(node.children(), &built.children)
+        let mut children: Vec<SDFElement> = paint_order(&lifted.children, &built.children)
             .into_iter()
-            .filter_map(|(child, built)| self.element(child, built, top_left))
+            .filter_map(|(child, built)| self.element(child, built, top_left - offset, inner))
+            // what's cut off doesn't need drawing, which keeps long scrolled lists cheap
+            .filter(|child| inner.overlaps(child.center - child.dimensions * 0.5, child.center + child.dimensions * 0.5))
             .collect();
         children.extend(text);
+        if let Some(scrolled) = scrolled {
+            // the content shows only inside the view, and the bars draw over it
+            let view = flat(scrolled.view.min, scrolled.view.size(), TRANSPARENT, SDFShape::Empty);
+            children = vec![SDFElement { children, ..view }];
+            children.extend(scrollbar_elements(&scrolled, style.scrollbar(), self.cursor.is_some_and(|cursor| own.intersect(clip).contains(cursor))));
+        }
 
         let shape = match style.background() {
             Background::Empty => SDFShape::Empty,
@@ -392,6 +595,46 @@ impl <T: LayoutTree> Emit<'_, T> {
             ..Default::default()
         })
     }
+
+    /// Where the content of a node with `style`, laid out at `own`, scrolled, if it scrolls.
+    fn scrolled(&self, style: &Style, built: &Built, layout: &taffy::Layout, own: ClipRect) -> Option<Scrolled> {
+        if !style.scrolls() { return None }
+        let taffy_style = self.tree.style(built.node).ok()?;
+        let border = layout.border;
+        let inner = ClipRect::new(own.min + Vec2::new(border.left, border.top), own.max - Vec2::new(border.right, border.bottom));
+        let room = bar_room(taffy_style);
+        let view = ClipRect::new(inner.min, (inner.max - room).max(inner.min));
+        let overflow = content_overflow(layout, taffy_style);
+        let max = Vec2::new(
+            if style.overflow_x().scrolls() { overflow.x } else { 0.0 },
+            if style.overflow_y().scrolls() { overflow.y } else { 0.0 },
+        );
+        let offset = style.scroll().clamp(Vec2::ZERO, max);
+        let bar = style.scrollbar();
+        let min_thumb = 2.0 * bar.width;
+        let mut bars = [None, None];
+        if room.y > 0.0 {
+            let track = ClipRect::new(Vec2::new(view.min.x, inner.max.y - bar.width), Vec2::new(view.max.x, inner.max.y));
+            bars[0] = Some(ScrollbarRects { track, thumb: thumb_rect(track, 0, view.size().x, max.x, offset.x, min_thumb) });
+        }
+        if room.x > 0.0 {
+            let track = ClipRect::new(Vec2::new(inner.max.x - bar.width, view.min.y), Vec2::new(inner.max.x, view.max.y));
+            bars[1] = Some(ScrollbarRects { track, thumb: thumb_rect(track, 1, view.size().y, max.y, offset.y, min_thumb) });
+        }
+        Some(Scrolled { view, offset, max, bars })
+    }
+}
+
+/// The tracks and thumbs of `scrolled`'s bars, drawn as `bar` says, the thumbs lit if `hovered`.
+fn scrollbar_elements(scrolled: &Scrolled, bar: &Scrollbar, hovered: bool) -> Vec<SDFElement> {
+    let pill = || SDFShape::Rectangle(SDFRectangle { radii: Vec4::splat(bar.width / 2.0) });
+    let thumb_color = if hovered { bar.thumb_hovered } else { bar.thumb };
+    let mut elements = vec![];
+    for rects in scrolled.bars.iter().flatten() {
+        if bar.track.w > 0.0 { elements.push(flat(rects.track.min, rects.track.size(), bar.track, pill())); }
+        if let Some(thumb) = rects.thumb && thumb_color.w > 0.0 { elements.push(flat(thumb.min, thumb.size(), thumb_color, pill())); }
+    }
+    elements
 }
 
 fn location(tree: &TaffyTree<TextMeasure>, node: NodeId) -> Vec2 {
@@ -447,14 +690,18 @@ pub struct TextPlacement {
     /// The box the text shows in, its content box when it clips.
     pub view_min: Vec2,
     pub view_max: Vec2,
+    /// The part of the window its node shows in.
+    pub clip: ClipRect,
 }
 
 impl TextPlacement {
     /// `point` in the layout's coordinates.
     pub fn local(&self, point: Vec2) -> Vec2 { point - self.origin }
 
-    /// Whether `point` is in the box the text shows in.
-    pub fn shows(&self, point: Vec2) -> bool { point.cmpge(self.view_min).all() && point.cmple(self.view_max).all() }
+    /// Whether the text shows at `point`.
+    pub fn shows(&self, point: Vec2) -> bool {
+        point.cmpge(self.view_min).all() && point.cmple(self.view_max).all() && self.clip.contains(point)
+    }
 }
 
 /// A flat colored box.
@@ -467,9 +714,9 @@ fn rectangle() -> SDFShape { SDFShape::Rectangle(SDFRectangle::default()) }
 
 /// `text` laid out in the box at `top_left` sized `dimensions`, `insets` (top, bottom, left,
 /// right) in from its edges: span backgrounds and the selection, then the lines of glyphs, then
-/// underlines and the caret. Lines outside the window, or outside the content box of clipped
-/// text, are left out.
-fn build_text_element(text: &Text, insets: [f32; 4], top_left: Vec2, dimensions: Vec2, display_size: [f32; 2]) -> (Option<SDFElement>, TextPlacement) {
+/// underlines and the caret. Lines outside the window, outside `clip`, or outside the content
+/// box of clipped text, are left out.
+fn build_text_element(text: &Text, insets: [f32; 4], top_left: Vec2, dimensions: Vec2, display_size: [f32; 2], clip: ClipRect) -> (Option<SDFElement>, TextPlacement) {
     let [top, bottom, left, right] = insets;
     let content_min = top_left + Vec2::new(left, top);
     let content_size = (dimensions - Vec2::new(left + right, top + bottom)).max(Vec2::ZERO);
@@ -489,6 +736,8 @@ fn build_text_element(text: &Text, insets: [f32; 4], top_left: Vec2, dimensions:
     } else {
         (Vec2::ZERO, Vec2::from_array(display_size))
     };
+    // what's drawn: the view, less what an ancestor cuts off
+    let shown = clip.intersect(ClipRect::new(view_min, view_max));
 
     let len = text.content.len();
     let clamp = |range: &std::ops::Range<usize>| range.start.min(len)..range.end.min(len);
@@ -497,7 +746,7 @@ fn build_text_element(text: &Text, insets: [f32; 4], top_left: Vec2, dimensions:
     let boxes = |rects: Vec<(Vec2, Vec2)>, color: Vec4, children: &mut Vec<SDFElement>| {
         for (min, size) in rects {
             let min = origin + min;
-            if min.y > view_max.y || min.y + size.y < view_min.y { continue }
+            if min.y > shown.max.y || min.y + size.y < shown.min.y { continue }
             children.push(flat(min, size, color, rectangle()));
         }
     };
@@ -516,14 +765,15 @@ fn build_text_element(text: &Text, insets: [f32; 4], top_left: Vec2, dimensions:
             for at in clamp(&span.range) { colored[at] = idx as u32; }
         }
     }
-    let first = layout.line_at(view_min.y - origin.y);
-    let last = layout.line_at(view_max.y - origin.y);
+    let first = layout.line_at(shown.min.y - origin.y);
+    let last = layout.line_at(shown.max.y - origin.y);
     for (row, line) in layout.lines.iter().enumerate().take(last + 1).skip(first) {
         let line_y = origin.y + row as f32 * line_height + line_height * 0.5;
+        if line_y + line_height * 0.5 < shown.min.y || line_y - line_height * 0.5 > shown.max.y { continue }
         let glyphs: Vec<SDFElement> = line.glyphs.iter()
             .filter(|glyph| {
                 let x = origin.x + line.x + glyph.x;
-                !text.clip || (x + glyph.advance >= view_min.x && x <= view_max.x)
+                x + glyph.advance >= shown.min.x && x <= shown.max.x
             })
             .filter_map(|glyph| {
                 let shape = text.font.glyph(glyph.ch, text.font_size)?;
@@ -548,7 +798,7 @@ fn build_text_element(text: &Text, insets: [f32; 4], top_left: Vec2, dimensions:
             let mut min = origin + Vec2::new(min.x, min.y + layout.baseline + offset);
             // thin lines centered on a pixel draw crisp
             if underline.style == UnderlineStyle::Solid { min.y = (min.y + height * 0.5).floor() + 0.5 - height * 0.5; }
-            if min.y > view_max.y || min.y + height < view_min.y { continue }
+            if min.y > shown.max.y || min.y + height < shown.min.y { continue }
             children.push(flat(min, Vec2::new(size.x, height), underline.color, shape.clone()));
         }
     }
@@ -559,7 +809,7 @@ fn build_text_element(text: &Text, insets: [f32; 4], top_left: Vec2, dimensions:
         children.push(flat(Vec2::new(x - caret_width * 0.5, at.y), Vec2::new(caret_width, line_height), cursor.caret_color, rectangle()));
     }
 
-    let placement = TextPlacement { layout: Arc::new(layout), origin, view_min, view_max };
+    let placement = TextPlacement { layout: Arc::new(layout), origin, view_min, view_max, clip };
     if children.is_empty() { return (None, placement) }
     let (min, max) = if text.clip {
         (view_min, view_max)
@@ -743,5 +993,84 @@ mod tests {
         // flow children first, then the anchored one, which takes no room
         assert_eq!(bounds(&children[1]).0, Vec2::new(100.0, 20.0));
         assert_eq!(bounds(&children[2]).0, Vec2::new(280.0, 180.0));
+    }
+
+    /// A column 100 wide and up to 100 tall holding `rows` rows 30 tall, scrolled `scroll`.
+    fn list(rows: usize, overflow: Overflow, scroll: f32) -> UINode {
+        let mut list = UINode::default();
+        list.set_width(Val::Px(100.0));
+        list.set_max_height(Val::Px(100.0));
+        list.set_overflow_y(overflow);
+        list.set_scroll(Vec2::new(0.0, scroll));
+        list.set_scrollbar(Scrollbar { width: 6.0, gap: 4.0, ..Default::default() });
+        list.add_all((0..rows).map(|_| { let mut row = UINode::default(); row.set_height(Val::Px(30.0)); row.set_flex_shrink(0.0); row }));
+        list
+    }
+
+    /// Where each node went, in paint order.
+    fn placed(nodes: &[UINode]) -> Vec<LaidOut> {
+        let mut placed = vec![];
+        layout_tree(nodes, Vec2::ZERO, Vec2::from_array(SCREEN), SCREEN, None, &mut |_: &UINode, laid_out| placed.push(laid_out));
+        placed
+    }
+
+    #[test]
+    fn auto_overflow_scrolls_only_when_it_overflows() {
+        // fits: no bar, the rows fill the width
+        let fits = placed(&[list(3, Overflow::Auto, 0.0)]);
+        let scroll = fits[0].scroll.unwrap();
+        assert_eq!((fits[0].size, scroll.max, scroll.bars), (Vec2::new(100.0, 90.0), Vec2::ZERO, [None, None]));
+        assert_eq!(fits[1].size.x, 100.0);
+
+        // overflows: capped height, a bar's room taken from the rows, scrolled within range
+        let overflows = placed(&[list(10, Overflow::Auto, 1000.0)]);
+        let scroll = overflows[0].scroll.unwrap();
+        assert_eq!((overflows[0].size, scroll.max, scroll.offset), (Vec2::new(100.0, 100.0), Vec2::new(0.0, 200.0), Vec2::new(0.0, 200.0)));
+        assert_eq!(overflows[1].size.x, 90.0);
+        // the last row ends at the bottom, the first is scrolled out of view
+        assert_eq!(overflows[10].top_left.y, 70.0);
+        assert!(!overflows[1].clip.overlaps(overflows[1].top_left, overflows[1].top_left + overflows[1].size));
+        let bar = scroll.bars[1].unwrap();
+        assert_eq!(bar.track, ClipRect::new(Vec2::new(94.0, 0.0), Vec2::new(100.0, 100.0)));
+        // a third of the content shows, at the end
+        let thumb = bar.thumb.unwrap();
+        assert!((thumb.min - Vec2::new(94.0, 200.0 / 3.0)).abs().max_element() < 1e-3 && thumb.max == Vec2::splat(100.0));
+        // halfway down the free track is halfway through the content
+        assert_eq!(scroll.offset_at(1, 0.0), 0.0);
+        assert!((scroll.offset_at(1, 100.0 / 3.0) - 100.0).abs() < 1e-3);
+
+        // scroll keeps the bar's room even when it fits
+        let always = placed(&[list(3, Overflow::Scroll, 0.0)]);
+        assert_eq!(always[1].size.x, 90.0);
+        assert_eq!(always[0].scroll.unwrap().bars[1].unwrap().thumb, None);
+    }
+
+    #[test]
+    fn scrolled_out_children_are_not_drawn() {
+        let elements = layout(&[list(10, Overflow::Auto, 45.0)]);
+        // the view, then the track and thumb
+        assert_eq!(elements[0].children.len(), 3);
+        let shown: Vec<f32> = elements[0].children[0].children.iter().map(|row| bounds(row).0.y).collect();
+        assert_eq!(shown, vec![-15.0, 15.0, 45.0, 75.0]);
+    }
+
+    #[test]
+    fn fixed_nodes_escape_their_parents() {
+        let mut parent = sized(50.0, 50.0);
+        parent.set_margin(Rect::new_left(Val::Px(100.0)));
+        let mut menu = sized(80.0, 80.0);
+        menu.set_position_type(PositionType::Fixed(Rect::new_top_left(Val::Px(300.0), Val::Px(400.0))));
+        parent.add(menu);
+        let mut hidden = sized(10.0, 10.0);
+        hidden.set_display(Display::None);
+        let mut inner = sized(10.0, 10.0);
+        inner.set_position_type(PositionType::Fixed(Rect::default()));
+        hidden.add(inner);
+        parent.add(hidden);
+        let elements = layout(&[parent]);
+        // a root of its own placed against the window, and dropped inside a hidden node
+        assert_eq!(elements.len(), 2);
+        assert!(elements[0].children.is_empty());
+        assert_eq!(bounds(&elements[1]), (Vec2::new(400.0, 300.0), Vec2::splat(80.0)));
     }
 }

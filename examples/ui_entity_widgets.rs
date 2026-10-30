@@ -13,6 +13,9 @@ struct Ids {
     scale: EntityID,
     name: EntityID,
     greet: EntityID,
+    /// Items of the greet button's right click menu, and how many greetings each adds.
+    greet_menu: Vec<(EntityID, u32)>,
+    reset: EntityID,
     status: EntityID,
     number: EntityID,
     open_popup: EntityID,
@@ -59,7 +62,15 @@ fn setup(world: World) {
         themed::separator(),
         themed::row().children([
             themed::text_input("Your name", 140.0).named("name"),
-            themed::button("Greet").named("greet").with(Tooltip("Counts the greetings".into())),
+            themed::button("Greet").named("greet").with(Tooltip("Counts the greetings".into())).context_menu(themed::menu(160.0, [
+                themed::menu_item_shortcut("Greet", "Click").named("greet once"),
+                themed::submenu("Greet more", 120.0, [
+                    themed::menu_item("Twice").named("greet twice"),
+                    themed::menu_item("Five times").named("greet five times"),
+                ]),
+                themed::separator(),
+                themed::menu_item("Reset").named("reset"),
+            ])),
         ]),
         themed::colored_label("No name yet", Theme::default().error).named("status"),
         themed::row().children([
@@ -70,7 +81,7 @@ fn setup(world: World) {
         themed::separator(),
         themed::scroll_rows(10, [
             themed::section("Fruit", true, fruit),
-            themed::section("Vegetables", false, veg),
+            themed::section("Vegetables", true, veg),
         ]).with(RadioGroup::default()).named("food"),
     ]);
     let panel = world.spawn(panel.into_entity_builder());
@@ -88,6 +99,8 @@ fn setup(world: World) {
         scale: find(panel, "scale"),
         name: find(panel, "name"),
         greet: find(panel, "greet"),
+        greet_menu: vec![(find(panel, "greet once"), 1), (find(panel, "greet twice"), 2), (find(panel, "greet five times"), 5)],
+        reset: find(panel, "reset"),
         status: find(panel, "status"),
         number: find(panel, "number"),
         open_popup: find(panel, "open popup"),
@@ -120,6 +133,8 @@ fn react(
 ) {
     for Activate { entity } in activated.read() {
         if entity == ids.greet { state.clicks += 1; }
+        if let Some((_, more)) = ids.greet_menu.iter().find(|(item, _)| *item == entity) { state.clicks += more; }
+        if entity == ids.reset { state.clicks = 0; }
         let toggle_popup = entity == ids.open_popup;
         if toggle_popup || entity == ids.close {
             change(&world, ids.popup, |node: &mut Node| {

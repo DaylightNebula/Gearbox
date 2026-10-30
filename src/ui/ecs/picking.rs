@@ -25,16 +25,26 @@ pub fn interaction_of(id: EntityID, hovered: Option<EntityID>, captured: Option<
 /// the button is let go. Immediate mode windows under the pointer hide the nodes beneath them.
 pub fn pick_ui(world: World, mut input: ResMut<UiInput>, layout: Res<EntityUiElements>, mut nodes: Query<&'static ComputedNode>) {
     let mut opaque = false;
-    while let Ok(Some((_, node))) = nodes.next() {
-        opaque |= node.opaque && node.pass == layout.pass && node.contains(input.cursor);
+    // the topmost scrollbar under the pointer: (stack, node, axis)
+    let mut bar: Option<(u32, EntityID, usize)> = None;
+    while let Ok(Some((id, node))) = nodes.next() {
+        if node.pass != layout.pass || !node.contains(input.cursor) { continue }
+        opaque |= node.opaque;
+        let under = node.scroll.as_ref().and_then(|scroll| scroll.bar_at(input.cursor));
+        if let Some((axis, _)) = under && bar.is_none_or(|(stack, ..)| node.stack > stack) { bar = Some((node.stack, id, axis)); }
     }
     input.over_nodes = opaque && !input.over_windows;
+    if input.over_windows { bar = None; }
 
     let mut targets = vec![];
     let mut query = Query::<(&ComputedNode, &mut Interaction)>::new(&world);
     while let Ok(Some((id, (node, _)))) = query.next() { targets.push((id, *node)); }
     drop(query);
-    input.hovered = if input.over_windows { None } else { topmost(targets, input.cursor, layout.pass) };
+    input.hovered = if input.over_windows { None } else { topmost(targets.iter().copied(), input.cursor, layout.pass) };
+    // a scrollbar hides the node it scrolls and what's under it
+    let target_stack = input.hovered.and_then(|id| targets.iter().find(|(target, _)| *target == id)).map(|(_, node)| node.stack);
+    input.over_scrollbar = bar.filter(|(stack, ..)| target_stack.is_none_or(|target| *stack >= target)).map(|(_, id, axis)| (id, axis));
+    if input.over_scrollbar.is_some() { input.hovered = None; }
     if input.pressed { input.captured = input.hovered; }
 
     let mut query = Query::<&mut Interaction>::new(&world);
@@ -99,7 +109,7 @@ mod tests {
     use magician_vgpu::glam::Vec4;
 
     fn node(x: f32, stack: u32, pass: u64) -> ComputedNode {
-        ComputedNode { position: Vec2::new(x, 0.0), size: Vec2::splat(10.0), stack, pass, opaque: true }
+        ComputedNode { position: Vec2::new(x, 0.0), size: Vec2::splat(10.0), stack, pass, opaque: true, ..Default::default() }
     }
 
     #[test]
@@ -115,7 +125,7 @@ mod tests {
         use std::sync::Arc;
         let font = crate::ui::SDFFont::new(include_bytes!("../../../examples/LiberationSans-Regular.ttf")).unwrap();
         let layout = Arc::new(font.layout("let value", 20.0, None));
-        let placement = TextPlacement { layout: layout.clone(), origin: Vec2::new(10.0, 10.0), view_min: Vec2::ZERO, view_max: Vec2::splat(500.0) };
+        let placement = TextPlacement { layout: layout.clone(), origin: Vec2::new(10.0, 10.0), view_min: Vec2::ZERO, view_max: Vec2::splat(500.0), clip: Default::default() };
         let spans = [TextSpan::new(0..3).hover("keyword"), TextSpan::new(4..9).color(Vec4::ONE), TextSpan::new(4..6).hover("first")];
         let over = |index: usize| Vec2::new(10.0 + layout.lines[0].x_of(index) + 1.0, 15.0);
         let found = span_under([(1, 0, &placement, &spans[..])], over(1)).unwrap();

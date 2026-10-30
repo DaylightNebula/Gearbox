@@ -1,6 +1,6 @@
 ---
 name: ui-layout
-description: Use when building UI with gearbox's ui module (gearbox::ui) - adding UIPlugin, laying nodes out with CSS flexbox (flex_direction, justify_content, align_items, gap, grow/shrink/basis, wrap, grid), sizing with Val (Px, Percent, PercentWidth/PercentHeight), the box model (margin, padding, border), anchoring UI to parts of the window or filling the screen (Anchor), absolute positioning, z_index, text with SDFFont (multiline, wrapping, clipping, colored/underlined TextSpans with hovers), colors and backgrounds (including vector shapes), and UINodeSDFRoot node trees with their hover/press events and listeners. For widgets see the gearbox ui-entity-widgets and ui-immediate-widgets skills.
+description: Use when building UI with gearbox's ui module (gearbox::ui) - adding UIPlugin, laying nodes out with CSS flexbox (flex_direction, justify_content, align_items, gap, grow/shrink/basis, wrap, grid), sizing with Val (Px, Percent, PercentWidth/PercentHeight), the box model (margin, padding, border), anchoring UI to parts of the window or filling the screen (Anchor), absolute and fixed positioning, z_index, overflow with scrolling and scrollbars, text with SDFFont (multiline, wrapping, clipping, colored/underlined TextSpans with hovers), colors and backgrounds (including vector shapes), and UINodeSDFRoot node trees with their hover/press events and listeners. For widgets see the gearbox ui-entity-widgets and ui-immediate-widgets skills.
 ---
 
 # gearbox ui: layout and nodes
@@ -85,6 +85,7 @@ Set with `Style`'s setters (`set_width(..)`, which return `&mut Style`) on a `UI
   like `box-sizing: border-box`.
 - **Display:** `Flex` (default), `Grid` (equal cells, `grid_columns` wide or square-ish), or
   `None` (hidden, no room, not picked).
+- **Overflow:** `overflow_x`/`overflow_y` (`set_overflow` sets both), see Scrolling below.
 - **Look:**
   - `background` (`Background::Color(Vec4)`, `Image(TextureHandle)`, `Shape(Outline, Vec4)`
     for a filled vector shape over the content box, or `Empty`);
@@ -118,6 +119,10 @@ Colors are linear `Vec4` RGBA for an sRGB surface. Use `srgb(0xF2A33A)` for hex 
   - `Fill` covers the whole parent, or the whole screen for a root.
 - **Absolute:** `PositionType::Absolute(Rect)` / `.absolute(..)` places a node by offsets from
   its parent's edges. Set opposite edges to stretch it between them.
+- **Fixed:** `PositionType::Fixed(Rect)` / `.fixed(..)` places a node by offsets from the
+  window's edges and lays it out and draws it as a root, after the others, so the nodes it's
+  under can't cut it off or scroll it. Like CSS `position: fixed`, for menus and popups that
+  belong to a widget. It's still hidden with a hidden ancestor.
 - **Roots** that aren't anchored or absolute stack as a column filling the window.
 - **Paint order:** children draw over their parent, later siblings over earlier ones, and
   anchored or absolute nodes over flowing ones. A higher `z_index` draws over siblings (and
@@ -139,6 +144,43 @@ fn screens() -> (Node, Node, Node) {
     (toolbar, overlay, card)
 }
 ```
+
+## Scrolling
+
+A node's children and text are always cut off at its edges. `overflow_x`/`overflow_y` say what
+else happens to content that doesn't fit along each axis, like CSS `overflow`:
+
+- `Overflow::Clip` (default): nothing more.
+- `Overflow::Scroll`: cut off inside the border and scrolled, with room for a scrollbar always
+  kept along the right (vertical) or bottom (horizontal) edge. The node can shrink below its
+  content, so give it a size or `max_*`.
+- `Overflow::Auto`: like `Scroll`, but the bar and its room only appear while the content
+  doesn't fit.
+
+```rust
+use gearbox::ui::*;
+
+/// A column that grows with its rows up to 200 logical pixels, then scrolls.
+fn list(rows: impl IntoIterator<Item = UiBundle>) -> UiBundle {
+    UiBundle::new(Node::column().gap(px(4.0)).max_height(px(200.0)).overflow_y(Overflow::Auto)
+            // the immediate mode look; leave it out for plain grey bars
+            .scrollbar(Theme::default().scrollbar()))
+        .children(rows)
+}
+```
+
+- With the `UIPlugin`, entity nodes scroll by the wheel (Shift turns it sideways) while the
+  pointer is over them, the innermost one that can still move taking it; by dragging the
+  thumb; and by a page when the track is clicked.
+- `Style::scroll` holds the offset (logical pixels for entity nodes). Set it to scroll in code;
+  layout keeps it in range. `UINodeSDFRoot` trees aren't scrolled by input, so set it yourself.
+- `ComputedNode::scroll` (`LastState::scroll` for `UINode`s) gives last frame's `Scrolled`:
+  the `view` box, `offset`, `max` and the bars' rects. `ComputedNode::clip` is the part of the
+  window a node shows in; picking ignores what's cut off.
+- `Style::scrollbar` (`Scrollbar { width, gap, track, thumb, thumb_hovered }`) is how bars
+  look. The thumb is `thumb_hovered` while the pointer is over the node.
+- Long text scrolls the same way: give a wrapped text node a parent with a `max_height` and
+  `overflow_y(Overflow::Auto)`, or an unwrapped one `overflow_x`.
 
 ## `UINodeSDFRoot` trees
 
@@ -176,9 +218,9 @@ fn on_press(pressed: Event<UINodePressedEvent>) {
 
 - **Element limits.** Each glyph is one element. Where the GPU has storage buffers (desktop)
   the SDF buffers hold 16384 elements of each kind; on WebGL2 they're uniform buffers holding
-  a few hundred to a few thousand. Lines of text outside the window, or outside the content
-  box of clipped text, aren't drawn, so long clipped text only costs what shows.
-- **No `Overflow::Clip`.** `Overflow` isn't implemented; clip text with `Text::with_clip`.
+  a few hundred to a few thousand. Nodes and lines of text that are cut off (outside the
+  window, a scrolling node's view, or the content box of clipped text) aren't drawn, so long
+  scrolled lists and text only cost what shows.
 - **Auto margins** are zero, not CSS's centering margins. Center with `justify`/`align` or an
   anchor.
 - **Borders take room.** A 1px border with 8px padding leaves the content 9px in from the

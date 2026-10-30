@@ -14,6 +14,9 @@ use crate::ui::{SDFFont, TextHover, Theme};
 /// Wheel pixels that count as one notch.
 const PX_PER_NOTCH: f32 = 50.0;
 
+/// Logical pixels a wheel notch scrolls.
+pub(crate) const SCROLL_PER_NOTCH: f32 = 48.0;
+
 /// Longest gap between the presses of a double click.
 const MULTI_CLICK_SECONDS: f32 = 0.4;
 
@@ -37,6 +40,8 @@ pub struct UiInput {
     pub right_pressed: bool,
     /// Wheel notches this frame, positive scrolls up.
     pub wheel: f32,
+    /// Sideways wheel notches this frame, positive scrolls left.
+    pub wheel_x: f32,
     /// Window pixels per logical pixel.
     pub scale: f32,
     /// Window size in pixels.
@@ -51,6 +56,11 @@ pub struct UiInput {
     pub over_windows: bool,
     /// The pointer is over an entity node with a background.
     pub over_nodes: bool,
+    /// The scrollbar under the pointer, over any node there: the scrolling node and the axis,
+    /// 0 for the horizontal bar and 1 for the vertical one.
+    pub over_scrollbar: Option<(EntityID, usize)>,
+    /// The scrollbar thumb being dragged.
+    pub scroll_drag: Option<ScrollDrag>,
     /// Modifier keys held.
     pub modifiers: ModifiersState,
     /// Presses in quick succession the last press ends, 2 for a double click.
@@ -66,7 +76,7 @@ impl UiInput {
     pub fn over_ui(&self) -> bool { self.over_windows || self.over_nodes }
 
     /// Whether clicks and drags belong to the UI rather than what's behind it.
-    pub fn wants_pointer(&self) -> bool { self.over_ui() || self.captured.is_some() }
+    pub fn wants_pointer(&self) -> bool { self.over_ui() || self.captured.is_some() || self.scroll_drag.is_some() }
 
     /// Logical pixels to window pixels.
     pub fn px(&self, v: f32) -> f32 { v * self.scale }
@@ -81,6 +91,17 @@ impl UiInput {
     }
 }
 
+/// A scrollbar thumb held by the pointer.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ScrollDrag {
+    /// The scrolling node.
+    pub node: EntityID,
+    /// 0 for the horizontal bar, 1 for the vertical one.
+    pub axis: usize,
+    /// How far along the thumb it was grabbed, in window pixels.
+    pub grab: f32,
+}
+
 /// Reads this frame's window events into `UiInput`.
 pub(crate) fn read_ui_input(mut input: ResMut<UiInput>, window_events: Event<WindowEvent>, graphics: Res<Graphics>, window: Res<WindowDimensions>) {
     let input = &mut *input;
@@ -93,6 +114,7 @@ pub(crate) fn read_ui_input(mut input: ResMut<UiInput>, window_events: Event<Win
     input.released = false;
     input.right_pressed = false;
     input.wheel = 0.0;
+    input.wheel_x = 0.0;
     input.keys.clear();
     for event in window_events.read() {
         match &*event {
@@ -112,10 +134,14 @@ pub(crate) fn read_ui_input(mut input: ResMut<UiInput>, window_events: Event<Win
             }
             winit::event::WindowEvent::ModifiersChanged(modifiers) => input.modifiers = modifiers.state(),
             winit::event::WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Right, .. } => input.right_pressed = true,
-            winit::event::WindowEvent::MouseWheel { delta, .. } => input.wheel += match delta {
-                MouseScrollDelta::LineDelta(_, y) => *y,
-                MouseScrollDelta::PixelDelta(p) => p.y as f32 / PX_PER_NOTCH
-            },
+            winit::event::WindowEvent::MouseWheel { delta, .. } => {
+                let notches = match delta {
+                    MouseScrollDelta::LineDelta(x, y) => Vec2::new(*x, *y),
+                    MouseScrollDelta::PixelDelta(p) => Vec2::new(p.x as f32, p.y as f32) / PX_PER_NOTCH
+                };
+                input.wheel_x += notches.x;
+                input.wheel += notches.y;
+            }
             winit::event::WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
                 input.keys.push((event.logical_key.clone(), event.text.as_ref().map(|text| text.to_string())));
             }

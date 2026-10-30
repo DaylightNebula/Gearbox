@@ -186,11 +186,13 @@ in a single fullscreen pass over the scene, laid out like CSS flexbox with
 
 - **Node trees:** a `UINodeSDFRoot(UINode)` component holding a tree of `UINode`s styled with
   `Style` (sizes as `Val`, margin/padding/border, flex row/column/grid, `Anchor`s, absolute
-  positioning, text through `SDFFont`).
+  and fixed positioning, text through `SDFFont`, and `Overflow::Scroll`/`Auto` for content
+  scrolled by the wheel and draggable scrollbars).
 - **Entity widgets:** every node is an entity with a `Node` component, built as a `UiBundle`
   and spawned with `world.spawn(bundle.into_entity_builder())`. Behavior-only widgets
   (`Button`, `Checkbox`, `Slider`, `TextInput`, ...) send `Activate`/`ValueChange`/`Submit`
-  events, and `Node::shape` draws vector icons. **Prefer building your own `UiBundle`s for
+  events, `Node::shape` draws vector icons, and `.context_menu(menu)` opens a right click
+  `Menu`, with submenus, from the bundle's own children. **Prefer building your own `UiBundle`s for
   retained UI**; the `themed::` builders give the immediate mode look and suit tools and debug
   panels.
 - **Text and text inputs:** a node's `Text` (`Text::new(font, content, color, size)`) can be
@@ -372,9 +374,9 @@ claude plugin install gearbox@gearbox
 | --- | --- |
 | `gearbox:app` | Setup, the `App` and its graphs, systems and ordering, rates and delta time, entities, events, plugins, background work, egui and the web |
 | `gearbox:rendering` | `GearboxRenderPlugin`, cameras and transforms, meshes, materials, textures, drawing in the main pass and custom materials or meshes |
-| `gearbox:ui-layout` | `UIPlugin`, `Style` and flexbox, `Val` sizes, the box model, anchors and absolute positioning, text, colors, and `UINodeSDFRoot` trees with their events |
-| `gearbox:ui-entity-widgets` | Entity nodes built as `UiBundle`s (preferred for retained UI), shapes and icons, behavior-only widgets and their events, hover styling, `themed::` builders, theming and `ThemeOverride`, frame order |
-| `gearbox:ui-immediate-widgets` | The `Widget` resource and `Ui` builder, windows, ids and state, theme and input |
+| `gearbox:ui-layout` | `UIPlugin`, `Style` and flexbox, `Val` sizes, the box model, anchors, absolute and fixed positioning, overflow and scrolling, text, colors, and `UINodeSDFRoot` trees with their events |
+| `gearbox:ui-entity-widgets` | Entity nodes built as `UiBundle`s (preferred for retained UI), shapes and icons, behavior-only widgets and their events, context menus, scrolling, hover styling, `themed::` builders, theming and `ThemeOverride`, frame order |
+| `gearbox:ui-immediate-widgets` | The `Widget` resource and `Ui` builder, windows, scroll areas, context menus, ids and state, theme and input |
 | `gearbox:skeletal` | Loading skinned glTF/FBX models, `Animator`, hiding sub-meshes |
 | `gearbox:physics` | `PhysicsPlugin`, `PhysicsObject` and `Collider`, forces, characters, raycasts and shape casts |
 

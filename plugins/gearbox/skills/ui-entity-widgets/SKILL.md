@@ -1,6 +1,6 @@
 ---
 name: ui-entity-widgets
-description: Use when building retained, Bevy-style UI with gearbox's ui module (gearbox::ui) - entity UI nodes built as UiBundles (Node, UiBundle, into_entity_builder, find_named, reserve_id/with_id, despawning), filled vector shapes and icons (Outline, Node::shape), hover styling, behavior-only widget components (Button, Checkbox, Slider, RadioGroup/RadioButton, TextInput single and multiline text fields with caret, selection, undo, clipboard, colored/underlined TextSpans and span hovers, Collapsible, ScrollRows, DragHandle, Tooltip) and their events (Activate, ValueChange, Submit), the ready-styled themed:: builders (panel, button, slider, text_input, section, scroll_rows, ...; prefer hand-built UiBundles for app UI), themed::Label text, styling your own widgets, UiTheme/Theme colors and per-tree ThemeOverride, and UiInput for pointer and keyboard state. For Style and layout see the gearbox ui-layout skill.
+description: Use when building retained, Bevy-style UI with gearbox's ui module (gearbox::ui) - entity UI nodes built as UiBundles (Node, UiBundle, into_entity_builder, find_named, reserve_id/with_id, despawning), filled vector shapes and icons (Outline, Node::shape), hover styling, behavior-only widget components (Button, Checkbox, Slider, RadioGroup/RadioButton, TextInput single and multiline text fields with caret, selection, undo, clipboard, colored/underlined TextSpans and span hovers, Collapsible, DragHandle, Tooltip, right click context menus with ContextMenu/Menu/MenuItem and submenus) and their events (Activate, ValueChange, Submit), scrolling nodes by wheel and scrollbar, the ready-styled themed:: builders (panel, button, slider, text_input, section, scroll_rows, scroll_area, text_box, menu, ...; prefer hand-built UiBundles for app UI), themed::Label text, styling your own widgets, UiTheme/Theme colors and per-tree ThemeOverride, and UiInput for pointer and keyboard state. For Style and layout see the gearbox ui-layout skill.
 ---
 
 # gearbox ui: entity widgets
@@ -82,7 +82,7 @@ fn settings(world: &World) -> EntityID {
 - **Node builders:** `Node::row()`/`column()`, `width`, `height`, `size`, `min_*`/`max_*`,
   `margin`, `padding`, `gap`, `justify`, `align`, `align_self`, `wrap`, `grow`, `shrink`,
   `basis`, `background`, `shape(outline, color)`, `border(width, color)`, `radius`, `anchored`,
-  `absolute`, `z_index`, `display` and `text`. After spawning, change a node through `node.style_mut()`; `Node` doesn't
+  `absolute`, `fixed`, `z_index`, `display`, `overflow`/`overflow_x`/`overflow_y`, `scrollbar` and `text`. After spawning, change a node through `node.style_mut()`; `Node` doesn't
   deref to `Style`.
 - **Sizes are logical pixels.** They're scaled by the window's scale factor when laid out, and
   `ComputedNode` is in window pixels.
@@ -101,7 +101,9 @@ event.
 | `RadioGroup { selected }` + `RadioButton { index }` | a button selects its index in the nearest group above it | `ValueChange<usize>` (entity = group) |
 | `TextInput { text, hint, replace_on_focus, disabled, multiline, editor, scroll, .. }` | click to focus and place the caret, type, Enter (Command/Control+Enter if `multiline`) or click elsewhere hands it back; draws through the node's `Text`, see Text inputs below | `ValueChange<String>` while typing, `Submit { entity, text }` |
 | `Collapsible { open }` | clicking its first child (needs an `Interaction`) shows or hides its second | `ValueChange<bool>` |
-| `ScrollRows { first, visible }` | shows `visible` of the `ScrollItem` nodes below it, scrolled by the wheel; `rows` is the count | none |
+| `ContextMenu { disabled }` | a right click on it, or on a node below it without its own, opens the `Menu` among its children at the pointer; add it with `UiBundle::context_menu(menu)` | none |
+| `Menu { open }` | a `PositionType::Fixed` node shown while `open`; a `MenuItem` with a `Menu` child opens it beside itself while hovered; Escape, choosing an item or pressing elsewhere closes them all | none |
+| `MenuItem { disabled }` | a choice in the `Menu` above it, chosen when pressed then let go over it; closes the menus | `Activate { entity }` |
 | `DragHandle { target }` | dragging moves `target` (or its parent if `None`), an absolutely positioned node | none |
 | `Tooltip(String)` | shown by the themed tooltip window while hovered | none |
 
@@ -129,6 +131,33 @@ fn show_sliders(world: World, mut sliders: Query<&'static Slider>) {
     }
 }
 ```
+
+## Context menus
+
+```rust
+use gearbox::ui::{themed, *};
+
+/// A row that opens a menu, with a submenu, where it's right clicked. Chosen items send
+/// `Activate { entity }` with the item's id.
+fn file_row(name: &str) -> UiBundle {
+    let menu = themed::menu(160.0, [
+        themed::menu_item_shortcut("Open", "Enter").named("open"),
+        themed::submenu("Move to", 120.0, [themed::menu_item("Archive").named("archive"), themed::menu_item("Trash").named("trash")]),
+        themed::separator(),
+        themed::menu_item("Delete").named("delete"),
+    ]);
+    UiBundle::new(Node::row().height(px(24.0)).align(AlignItems::Center))
+        .interactive() // right clicks need a pickable node
+        .context_menu(menu)
+        .child(themed::label(name))
+}
+```
+
+- The menu and its submenus are ordinary bundles in the target's children: find items with
+  `find_named` or `reserve_id`/`with_id`, and set `MenuItem::disabled` to grey one out.
+- A hand-styled menu is any node with a `Menu`, made `fixed(..)` and `Display::None` so it
+  starts closed, holding nodes with a `MenuItem` and an `Interaction`. The system shows it and
+  places it each frame, flipping submenus left at the window's edge.
 
 ## Text inputs
 
@@ -271,9 +300,9 @@ The pins of the render graph:
 - **`End`:** themed widgets restyle, then everything is laid out and drawn.
 
 Picking uses last frame's layout, so there's one frame of latency. `UiInput` holds `cursor`,
-`down`/`pressed`/`released`, `clicks` (2 for a double click), `wheel`, `keys`, `modifiers`
-(`command()` is Command on macOS, Control elsewhere), `hovered`, `captured`, `hovered_span`
-and `wants_pointer()`, which tells game input whether the pointer belongs to the UI.
+`down`/`pressed`/`released`, `right_pressed`, `clicks` (2 for a double click), `wheel`/`wheel_x`, `keys`, `modifiers`
+(`command()` is Command on macOS, Control elsewhere), `hovered`, `captured`, `hovered_span`,
+`over_scrollbar`/`scroll_drag` and `wants_pointer()`, which tells game input whether the pointer belongs to the UI.
 `UiClipboard` is the OS clipboard (`text()`, `set_text(..)`), kept in memory on the web.
 
 ## Themed widgets
@@ -287,10 +316,12 @@ frame. Prefer your own `UiBundle`s for app UI (see above); these suit tools and 
 | Layout | `row()`, `column()`, `separator()`, `vseparator()`, `space(px)` |
 | Windows | `frame(Option<width>)` (untitled; anchor or position it), `panel(title, pos, width)` (dragged by its title) |
 | Controls | `button`, `button_tone(text, Tone::Primary \| Danger)`, `checkbox(text, checked)`, `toggle(text, on)` (a `Checkbox`), `slider(Slider, suffix, decimals)`, `slider_bar(Slider, width)`, `text_input(hint, width)`, `number_input(text, width)`, `segmented(options, selected)` |
-| Lists | `list_row(index, ListItem::new(text).swatch(c).trailing(t))` (selects in the `RadioGroup` above), `collapsible(title, open, children)`, `section(..)` (shows a count), `scroll_rows(visible, children)` (add `.with(RadioGroup::default())` to select rows) |
+| Lists | `list_row(index, ListItem::new(text).swatch(c).trailing(t))` (selects in the `RadioGroup` above), `collapsible(title, open, children)`, `section(..)` (shows a count), `scroll_rows(visible, children)` (scrolls past `visible` rows; add `.with(RadioGroup::default())` to select rows) |
+| Scrolling | `scroll_area(max_height, children)` (a column that scrolls when taller), `text_box(text, max_height)` (wrapped text that scrolls) |
+| Menus | `menu(width, items)` with `menu_item(text)`, `menu_item_shortcut(text, shortcut)`, `submenu(text, width, items)` and `separator()`; give it to `.context_menu(..)` on an interactive bundle |
 | Readouts | `led(text, lit, color)` (a `themed::Led`), `keycap(text)`, `seven_segment(text, digits, lit)` (a `themed::SevenSegment`) |
 
-- **Text:** a themed widget's text is a `themed::Label { text, size, bold, align, color }`
+- **Text:** a themed widget's text is a `themed::Label { text, size, bold, align, color, wrap }`
   component. Change `text` to change what it says.
 - **Parts:** themed widgets find their parts by child position. For example, a checkbox's text
   is the `Label` on its second child. Don't reorder or remove their children.
@@ -325,8 +356,8 @@ frame. Prefer your own `UiBundle`s for app UI (see above); these suit tools and 
 - **Matching the look:** `local_theme(&world, id, &ui_theme)` gives the theme a node is drawn
   with. `Theme`'s methods give each widget's colors in each state, for styling headless
   widgets to match: `button(tone, hot)`, `switch(on, hot)`, `slider(enabled, lit)`,
-  `list_row`, `header`, `field_border`, `option`, `led`, `segments`, `scroll_thumb` and
-  `separator`.
+  `list_row`, `header`, `field_border`, `option`, `led`, `segments`, `menu_item(hot, enabled)`,
+  `scrollbar()` (a `Scrollbar` for `Node::scrollbar`) and `separator`.
 
 ## Gotchas
 
@@ -337,7 +368,13 @@ frame. Prefer your own `UiBundle`s for app UI (see above); these suit tools and 
   everything they'll need up front: `.interactive()` and `ThemeOverride::default()`.
 - **Layering.** Entity UI draws under immediate-mode windows. `z_index` only orders entity
   nodes among themselves.
-- **Scrolling** is by whole rows: `ScrollRows` hides rows rather than clipping them.
+- **Scrolling** is by pixels on any node with `Overflow::Scroll` or `Overflow::Auto` (see the
+  ui-layout skill). Every child is laid out, but what's scrolled out of view isn't drawn or
+  picked.
+- **Menus are children.** A context menu is a child of the node it belongs to, so it's found
+  with `find_named`, recolored by its `ThemeOverride`s and despawned with it. Being `Fixed`, it
+  isn't cut off by the scroll areas it's in. Clicks that close a menu still reach what's under
+  the pointer.
 - **Typing** reaches `TextInput`s through window keyboard events, so the window needs focus.
 - **A `TextInput` needs a `Text`** on its node to show anything: give it one on the bundle
   (themed fields make their own).

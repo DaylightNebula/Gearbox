@@ -66,7 +66,9 @@ pub(crate) fn layout_entity_ui(
 
     let screen = Vec2::new(window.x as f32, window.y as f32);
     let mut placed = vec![];
-    out.elements = layout_tree(&roots, Vec2::ZERO, screen, [screen.x, screen.y], &mut |node: &EntityNode, laid_out| {
+    // immediate mode windows over the pointer hide it from entity nodes
+    let cursor = (!input.over_windows).then_some(input.cursor);
+    out.elements = layout_tree(&roots, Vec2::ZERO, screen, [screen.x, screen.y], cursor, &mut |node: &EntityNode, laid_out| {
         let opaque = !matches!(node.style.background(), Background::Empty);
         placed.push((node.id, laid_out, opaque));
     });
@@ -75,7 +77,15 @@ pub(crate) fn layout_entity_ui(
     for (id, laid_out, opaque) in placed {
         if let Some(text) = laid_out.text.clone() { out.texts.insert(id, text); }
         if let Ok(Some(mut computed)) = world.handle(id).get::<&mut ComputedNode>() {
-            *computed = ComputedNode { position: laid_out.top_left, size: laid_out.size, stack: laid_out.stack, pass: out.pass, opaque };
+            *computed = ComputedNode {
+                position: laid_out.top_left,
+                size: laid_out.size,
+                stack: laid_out.stack,
+                pass: out.pass,
+                opaque,
+                clip: laid_out.clip,
+                scroll: laid_out.scroll,
+            };
         }
     }
 }
@@ -124,7 +134,7 @@ mod tests {
             ]).into_entity_builder()
         );
         let roots = snapshot(&world, &mut styles(&world), 2.0);
-        let entity = layout_tree(&roots, Vec2::ZERO, Vec2::new(800.0, 600.0), [800.0, 600.0], &mut |_, _| {});
+        let entity = layout_tree(&roots, Vec2::ZERO, Vec2::new(800.0, 600.0), [800.0, 600.0], None, &mut |_, _| {});
 
         let mut tree = UINode::default();
         tree.set_style(panel().0.scaled(2.0));
@@ -149,7 +159,7 @@ mod tests {
         );
         let roots = snapshot(&world, &mut styles(&world), 1.0);
         let mut placed = vec![];
-        layout_tree(&roots, Vec2::ZERO, Vec2::new(800.0, 600.0), [800.0, 600.0], &mut |node: &EntityNode, laid_out| placed.push((node.id, laid_out)));
+        layout_tree(&roots, Vec2::ZERO, Vec2::new(800.0, 600.0), [800.0, 600.0], None, &mut |node: &EntityNode, laid_out| placed.push((node.id, laid_out)));
         let child = find_named(&world, root, "child").unwrap();
         assert_eq!(placed.len(), 2);
         assert_eq!((placed[0].0, placed[0].1.top_left, placed[0].1.stack), (root, Vec2::new(700.0, 550.0), 0));

@@ -51,6 +51,16 @@ fn settings_ui(mut widget: ResMut<Widget>, mut settings: ResMut<Settings>) {
         ui.row(|ui| {
             ui.text_field("name", &mut settings.name, "Your name", 140.0);
             if ui.button_hint("Greet", "Counts the greetings") { settings.clicks += 1; }
+            // opens on a right click of the widget added last
+            ui.context_menu("greet", 160.0, |ui| {
+                if ui.menu_item_shortcut("Greet", "Click") { settings.clicks += 1; }
+                ui.submenu("Greet more", 120.0, |ui| {
+                    if ui.menu_item("Twice") { settings.clicks += 2; }
+                    if ui.menu_item("Five times") { settings.clicks += 5; }
+                });
+                ui.separator();
+                if ui.menu_item("Reset") { settings.clicks = 0; }
+            });
         });
         if settings.clicks > 0 { ui.label(&format!("Hello {} x{}", settings.name, settings.clicks)); }
         if settings.name.is_empty() { ui.colored_label("No name yet", ui.theme().error); }
@@ -67,7 +77,7 @@ fn settings_ui(mut widget: ResMut<Widget>, mut settings: ResMut<Settings>) {
 
         let fruit = ["Apple", "Banana", "Cherry"].map(String::from).to_vec();
         let veg = (1..=20).map(|n| format!("Veg {n}")).collect();
-        ui.sections("food", &[("Fruit", fruit, true), ("Vegetables", veg, false)], 10, |ui, name| {
+        ui.sections("food", &[("Fruit", fruit, true), ("Vegetables", veg, true)], 10, |ui, name| {
             if ui.selectable(name, settings.picked.as_ref() == Some(name), name) { settings.picked = Some(name.clone()); }
         });
     });
