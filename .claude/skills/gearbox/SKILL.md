@@ -140,10 +140,11 @@ behavior-only and themed widgets), and immediate mode (`Widget`/`Ui`).
 | --- | --- |
 | `mod.rs` | `UIPlugin` (resources and system ordering), GPU setup (`init_resources`), `ui_render_pass` (merges entity elements, `UINodeSDFRoot` trees and `UIRawElements`, uploads and draws) |
 | `nodes/data.rs`, `nodes/render.rs`, `nodes/outline.rs` | `UINode`, `Style`, `Val`, `Anchor`, `Text`, `Background`; layout (`layout_tree` builds a taffy tree and emits `SDFElement`s in paint order); `Outline`, the vector shapes `Background::Shape` draws as `SDFShape::Glyph`. Layout and outline tests |
-| `data.rs`, `shader.rs`, `shaders/*.wgsl` | `SDFElement`/`SDFShape`/`SDFStyle`, their GPU layouts, and the WGSL (`include_str!`'d) |
-| `fonts/` | `SDFFont`: text measuring, glyphs as bezier SDFs |
+| `data.rs`, `shader.rs`, `shaders/*.wgsl` | `SDFElement`/`SDFShape`/`SDFStyle` (`Wave` is the squiggly underline), their GPU layouts, and the WGSL (`include_str!`'d) |
+| `fonts/` | `SDFFont`: text measuring, cached glyph outlines as bezier SDFs, an ASCII advance table; `fonts/layout.rs` is `TextLayout` (lines, wrapping, hit testing, caret and range boxes), shared by measuring, drawing, carets and hovers |
+| `edit.rs` | `TextEditor` (caret, selection, word/line moves, undo, clipboard shortcuts), `field_shows`, `follow_caret`, span remapping (`text_change`, `remap_spans`); shared by `TextInput` and immediate fields |
 | `widgets.rs` | Immediate mode (`WidgetPlugin`, `Widget`, `Ui`), `Theme`, `srgb`, and the size constants themed widgets share |
-| `ecs/` | Entity UI: `node.rs` (`Node`, `UiBundle`, `into_entity_builder`), `layout.rs`, `picking.rs`, `input.rs` (`UiInput`, `UiFocus`, `UiTheme`, `ThemeOverride`), `controls.rs` (behavior-only widgets, system tests), `themed.rs` (`themed::` builders, `restyle_themed`) |
+| `ecs/` | Entity UI: `node.rs` (`Node`, `UiBundle`, `into_entity_builder`), `layout.rs` (also records each node's `TextPlacement` in `EntityUiElements::texts`), `picking.rs` (also `hover_text_spans`/`TextHover`), `input.rs` (`UiInput`, `UiFocus`, `UiTheme`, `ThemeOverride`), `controls.rs` (behavior-only widgets, system tests), `themed.rs` (`themed::` builders, `restyle_themed`) |
 
 Frame order, by render pin:
 1. **`Start`:** `read_ui_input` fills `UiInput`; `widgets_begin` hit tests last frame's
@@ -166,12 +167,24 @@ UI gotchas:
   `UINodeSDFRoot` trees aren't, and immediate mode scales itself through `px()`.
 - **Style setters** (`getset`) return `&mut Style`, so closures calling them need braces.
   `Node` deliberately doesn't deref to `Style`.
-- **No clipping:** `Overflow::Clip` isn't implemented in the shader. Lists hide rows instead.
-- **Buffer limits:** the SDF buffers are capped (`MAX_BUFFER_ELEMENTS`, less under WebGL), and
-  every glyph is one element.
+- **Clipping:** `Overflow::Clip` isn't implemented, but the shader skips an element's children
+  wherever a pixel is outside the element, so `Text::clip` wraps text in an element the size of
+  the content box. Lists hide rows instead.
+- **Buffer limits:** every glyph is one element. Where `max_storage_buffers_per_shader_stage`
+  allows, the SDF buffers are storage buffers (`MAX_STORAGE_ELEMENTS`, 16 bit pointers);
+  otherwise (WebGL2) uniform arrays (`MAX_BUFFER_ELEMENTS`, less under WebGL). Test both: force
+  `storage` false in `init_resources` and diff screenshots. Text culls lines outside the
+  window or its clip box.
+- **Thin lines:** SDF coverage is the distance inside the shape, so a 1px-wide shape peaks at
+  half alpha and vanishes when centered between pixels. Carets and underlines are 2px wide
+  centered on a pixel center.
+- **Text parity:** themed `text_input` and immediate `text_field` both draw through `Text`
+  with `cursor`/`clip`/`scroll` and the same `edit.rs` helpers; keep them in step.
 - **Input in headless runs:** there is none. Send `WindowEvent(CursorMoved/MouseInput)` from a
-  render system in a throwaway `examples/zz_check.rs`, keyed on `FrameCount`. Key events can't
-  be built; test typing through `UiInput.keys` in unit tests.
+  render system in a throwaway `examples/zz_check.rs`, keyed on `FrameCount` (presses a frame
+  or two apart count as a double click). Key events can't be built; test typing through
+  `UiInput.keys` in unit tests. Text widget tests put a `TextPlacement` in
+  `EntityUiElements::texts` to stand in for last frame's layout.
 - Widget systems can be tested without a GPU: build a `World`, insert a `UiInput`, and run the
   system through `SingleThreadedExecutor` (see `ecs/controls.rs`).
 

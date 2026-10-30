@@ -63,14 +63,8 @@ fn show_volume(world: World, readout: Res<Readout>, mut sliders: Query<&'static 
             node.style_mut().set_width(percent(fraction));
         }
         if let Ok(Some(mut node)) = world.handle(readout.label).get::<&mut Node>() {
-            node.style_mut().set_text(Some(Text {
-                font: readout.font.clone(),
-                content: format!("Volume {value:.0}"),
-                color: if disabled { Vec4::splat(0.3) } else { Vec4::ONE },
-                font_size: 18.0,
-                horizontal_align: Align::Start,
-                vertical_align: Align::Center,
-            }));
+            let color = if disabled { Vec4::splat(0.3) } else { Vec4::ONE };
+            node.style_mut().set_text(Some(Text::new(readout.font.clone(), format!("Volume {value:.0}"), color, 18.0).with_align(Align::Start, Align::Center)));
         }
     }
 }

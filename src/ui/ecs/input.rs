@@ -6,12 +6,19 @@ use std::sync::{Arc, Mutex};
 use anarchy::{Component, EntityID, Event, Res, ResMut, Resource, World};
 use crate::{Graphics, WindowDimensions, WindowEvent};
 use magician_vgpu::glam::{Vec2, Vec4};
-use winit::{event::{ElementState, MouseButton, MouseScrollDelta}, keyboard::{Key, NamedKey}, raw_window_handle::RawDisplayHandle};
+use web_time::Instant;
+use winit::{event::{ElementState, MouseButton, MouseScrollDelta}, keyboard::{Key, ModifiersState, NamedKey}, raw_window_handle::RawDisplayHandle};
 
-use crate::ui::{SDFFont, Theme};
+use crate::ui::{SDFFont, TextHover, Theme};
 
 /// Wheel pixels that count as one notch.
 const PX_PER_NOTCH: f32 = 50.0;
+
+/// Longest gap between the presses of a double click.
+const MULTI_CLICK_SECONDS: f32 = 0.4;
+
+/// Farthest the pointer can move between the presses of a double click.
+const MULTI_CLICK_PX: f32 = 4.0;
 
 /// This frame's pointer and keyboard input, read in the `Start` pin. Positions are window
 /// pixels.
@@ -44,6 +51,14 @@ pub struct UiInput {
     pub over_windows: bool,
     /// The pointer is over an entity node with a background.
     pub over_nodes: bool,
+    /// Modifier keys held.
+    pub modifiers: ModifiersState,
+    /// Presses in quick succession the last press ends, 2 for a double click.
+    pub clicks: u32,
+    /// When and where the last press was.
+    pub last_press: Option<(Instant, Vec2)>,
+    /// The text span with a `hover` under the pointer, found after picking.
+    pub hovered_span: Option<TextHover>,
 }
 
 impl UiInput {
@@ -55,6 +70,10 @@ impl UiInput {
 
     /// Logical pixels to window pixels.
     pub fn px(&self, v: f32) -> f32 { v * self.scale }
+
+    /// Whether the key that goes with letters for shortcuts is held: Command on macOS, Control
+    /// elsewhere.
+    pub fn command(&self) -> bool { command(self.modifiers) }
 
     /// Whether `entity` was clicked: pressed, then let go of over it.
     pub fn activated(&self, entity: EntityID) -> bool {
@@ -82,7 +101,16 @@ pub(crate) fn read_ui_input(mut input: ResMut<UiInput>, window_events: Event<Win
                 input.down = *state == ElementState::Pressed;
                 input.pressed |= input.down;
                 input.released |= !input.down;
+                if input.down {
+                    let now = Instant::now();
+                    let again = input.last_press.is_some_and(|(at, pos)| {
+                        now.duration_since(at).as_secs_f32() < MULTI_CLICK_SECONDS && pos.distance(input.cursor) < MULTI_CLICK_PX
+                    });
+                    input.clicks = if again { input.clicks + 1 } else { 1 };
+                    input.last_press = Some((now, input.cursor));
+                }
             }
+            winit::event::WindowEvent::ModifiersChanged(modifiers) => input.modifiers = modifiers.state(),
             winit::event::WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Right, .. } => input.right_pressed = true,
             winit::event::WindowEvent::MouseWheel { delta, .. } => input.wheel += match delta {
                 MouseScrollDelta::LineDelta(_, y) => *y,
@@ -122,6 +150,12 @@ pub fn apply_key(text: &mut String, key: &Key, typed: Option<&str>) -> KeyOutcom
             if text.len() == before { KeyOutcome::Unchanged } else { KeyOutcome::Edited }
         }
     }
+}
+
+/// Whether `modifiers` hold the key that goes with letters for shortcuts: Command on macOS,
+/// Control elsewhere.
+pub fn command(modifiers: ModifiersState) -> bool {
+    if cfg!(target_os = "macos") { modifiers.super_key() } else { modifiers.control_key() }
 }
 
 /// The entity node taking typed text, if any.
@@ -216,15 +250,24 @@ pub fn local_theme(world: &World, id: EntityID, base: &UiTheme) -> UiTheme {
     theme
 }
 
-/// The OS clipboard.
-#[derive(Debug, Default, Resource, Clone)]
-pub struct UiClipboard(pub(crate) Option<Arc<Mutex<Clipboard>>>);
+/// The OS clipboard, or one kept in memory where there's none (the web, tests).
+#[derive(Debug, Resource, Clone)]
+pub struct UiClipboard(pub(crate) Arc<Mutex<Clipboard>>);
+
+impl Default for UiClipboard {
+    fn default() -> Self { Self(Arc::new(Mutex::new(Clipboard::Memory(None)))) }
+}
 
 impl UiClipboard {
-    pub(crate) fn new(display: Option<RawDisplayHandle>) -> Self { Self(Clipboard::new(display).map(|clipboard| Arc::new(Mutex::new(clipboard)))) }
+    pub(crate) fn new(display: Option<RawDisplayHandle>) -> Self { Self(Arc::new(Mutex::new(Clipboard::new(display)))) }
 
     /// The clipboard's text, if it has any.
-    pub fn text(&self) -> Option<String> { self.0.as_ref()?.lock().ok()?.text() }
+    pub fn text(&self) -> Option<String> { self.0.lock().ok()?.text() }
+
+    /// Puts `text` on the clipboard.
+    pub fn set_text(&self, text: impl Into<String>) {
+        if let Ok(mut clipboard) = self.0.lock() { clipboard.set_text(text.into()); }
+    }
 }
 
 /// The OS clipboard, through the window's own Wayland connection there like egui-winit.
@@ -232,7 +275,9 @@ pub(crate) enum Clipboard {
     #[cfg(target_os = "linux")]
     Wayland(smithay_clipboard::Clipboard),
     #[cfg(not(target_arch = "wasm32"))]
-    Arboard(arboard::Clipboard)
+    Arboard(arboard::Clipboard),
+    /// Text copied inside the app, where there's no OS clipboard.
+    Memory(Option<String>)
 }
 
 impl std::fmt::Debug for Clipboard {
@@ -241,16 +286,17 @@ impl std::fmt::Debug for Clipboard {
 
 impl Clipboard {
     #[cfg_attr(not(target_os = "linux"), allow(unused_variables))]
-    fn new(display: Option<RawDisplayHandle>) -> Option<Self> {
+    fn new(display: Option<RawDisplayHandle>) -> Self {
         #[cfg(target_os = "linux")]
         if let Some(RawDisplayHandle::Wayland(display)) = display {
             // SAFETY: the display is the window's, which lives as long as the app
-            return Some(Self::Wayland(unsafe { smithay_clipboard::Clipboard::new(display.display.as_ptr()) }))
+            return Self::Wayland(unsafe { smithay_clipboard::Clipboard::new(display.display.as_ptr()) })
         }
         #[cfg(not(target_arch = "wasm32"))]
-        return arboard::Clipboard::new().map(Self::Arboard).inspect_err(|err| eprintln!("No clipboard: {err}")).ok();
-        #[cfg(target_arch = "wasm32")]
-        None
+        if let Some(clipboard) = arboard::Clipboard::new().inspect_err(|err| eprintln!("No clipboard: {err}")).ok() {
+            return Self::Arboard(clipboard)
+        }
+        Self::Memory(None)
     }
 
     fn text(&mut self) -> Option<String> {
@@ -259,8 +305,17 @@ impl Clipboard {
             Self::Wayland(clipboard) => clipboard.load().ok(),
             #[cfg(not(target_arch = "wasm32"))]
             Self::Arboard(clipboard) => clipboard.get_text().ok(),
-            #[cfg(target_arch = "wasm32")]
-            _ => None
+            Self::Memory(text) => text.clone()
+        }
+    }
+
+    fn set_text(&mut self, text: String) {
+        match self {
+            #[cfg(target_os = "linux")]
+            Self::Wayland(clipboard) => clipboard.store(text),
+            #[cfg(not(target_arch = "wasm32"))]
+            Self::Arboard(clipboard) => if let Err(err) = clipboard.set_text(text) { log::error!("Failed to copy: {err}") },
+            Self::Memory(stored) => *stored = Some(text)
         }
     }
 }

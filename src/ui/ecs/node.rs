@@ -5,7 +5,7 @@ use magician_vgpu::glam::{Vec2, Vec4};
 
 use crate::ui::{
     AlignItems, Anchor, Background, Display, FlexWrap, Interaction, JustifyContent, Outline, PositionType, Rect, RectCorners,
-    Style, Text, ThemeOverride, Val,
+    Style, Text, TextSpan, ThemeOverride, Val,
 };
 
 /// A UI node entity: its layout and look. Children are its children in the world's
@@ -162,6 +162,19 @@ impl UiBundle {
 
     /// Changes the node's layout and look.
     pub fn style(mut self, change: impl FnOnce(Node) -> Node) -> Self { self.node = change(self.node); self }
+
+    /// Draws `text` in the node's content box, see `Text`.
+    pub fn text(mut self, text: Text) -> Self { self.node = self.node.text(text); self }
+
+    /// Adds `spans` to the node's text, given before with `text`. Each colors, highlights,
+    /// underlines or gives a hover to a run of the text.
+    pub fn spans(mut self, spans: impl IntoIterator<Item = TextSpan>) -> Self {
+        match self.node.0.text_mut() {
+            Some(text) => text.spans.extend(spans),
+            None => log::error!("UiBundle::spans needs the node's text set first"),
+        }
+        self
+    }
 
     /// Convert this bundle to an `EntityBuilder`.
     pub fn into_entity_builder(self) -> EntityBuilder {

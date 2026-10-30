@@ -36,7 +36,7 @@ unsafe impl Zeroable for SDFRawMetadata {}
 /// Raw data associated with the shaders implementation of SDFShape.
 ///
 /// `shape_ty` is the shape type ID (`0` empty, `1` circle, `2` rectangle,
-/// `3` bezier, `4` glyph). `looks_ptrs` packs shape and style indices in the
+/// `3` bezier, `4` glyph, `5` wave). `looks_ptrs` packs shape and style indices in the
 /// high and low 16 bits respectively. `next_ptrs` packs the next-sibling and
 /// first-child tree links in the high and low 16 bits respectively.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
@@ -78,7 +78,8 @@ impl TreeBufferContent for SDFRawShape {
             SDFShape::Circle => 1,
             SDFShape::Rectangle(_sdfrectangle) => 2,
             SDFShape::Bezier(_sdfcurve) => 3,
-            SDFShape::Glyph(_sdfcurves) => 4
+            SDFShape::Glyph(_sdfcurves) => 4,
+            SDFShape::Wave => 5
         };
 
         let shape_ptr = match &rust.shape {

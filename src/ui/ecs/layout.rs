@@ -5,7 +5,7 @@ use anarchy::{EntityID, Query, Res, ResMut, Resource, World};
 use crate::WindowDimensions;
 use magician_vgpu::glam::Vec2;
 
-use crate::ui::{Background, ComputedNode, Node, SDFElement, Style, UiInput, nodes::render::{LayoutTree, layout_tree}};
+use crate::ui::{Background, ComputedNode, Node, SDFElement, Style, TextPlacement, UiInput, nodes::render::{LayoutTree, layout_tree}};
 
 /// The entity nodes laid out last, drawn under `UINodeSDFRoot` trees.
 #[derive(Default, Resource)]
@@ -13,11 +13,13 @@ pub struct EntityUiElements {
     pub elements: Vec<SDFElement>,
     /// Counts layout passes, see `ComputedNode::pass`.
     pub pass: u64,
+    /// Where each node with text drew it, for hit testing the text.
+    pub texts: AHashMap<EntityID, TextPlacement>,
 }
 
 impl std::fmt::Debug for EntityUiElements {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("EntityUiElements").field("elements", &self.elements.len()).field("pass", &self.pass).finish()
+        f.debug_struct("EntityUiElements").field("elements", &self.elements.len()).field("pass", &self.pass).field("texts", &self.texts.len()).finish()
     }
 }
 
@@ -69,7 +71,9 @@ pub(crate) fn layout_entity_ui(
         placed.push((node.id, laid_out, opaque));
     });
     out.pass += 1;
+    out.texts.clear();
     for (id, laid_out, opaque) in placed {
+        if let Some(text) = laid_out.text.clone() { out.texts.insert(id, text); }
         if let Ok(Some(mut computed)) = world.handle(id).get::<&mut ComputedNode>() {
             *computed = ComputedNode { position: laid_out.top_left, size: laid_out.size, stack: laid_out.stack, pass: out.pass, opaque };
         }

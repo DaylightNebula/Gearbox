@@ -80,6 +80,11 @@ To close a popup when the user clicks elsewhere, check `widget.pressed_outside(i
 - `widget.wants_pointer()` and `over_ui()` tell game input whether the pointer belongs to the
   UI. `widget.typing()` means a text field has the keyboard, so skip shortcuts.
 - `widget.clipboard_text()` reads the OS clipboard.
+- **Text fields** edit like entity `TextInput`s: clicks place the caret, double clicks select
+  words, arrows and Home/End move, and Command (macOS) or Control does select all, copy, cut,
+  paste and undo. Long text scrolls to keep the caret in view. They're single line; for
+  multiline fields, colored spans or hovers, use an entity `TextInput` (gearbox
+  ui-entity-widgets skill).
 
 ## Gotchas
 

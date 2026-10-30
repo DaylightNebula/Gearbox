@@ -13,7 +13,7 @@ use taffy::{
 use crate::ui::{
     AlignContent, AlignItems, Anchor, Background, Display, FlexDirection, FlexWrap, Interaction,
     JustifyContent, LastState, Outline, PositionType, Rect, SDFElement, SDFFont, SDFRectangle, SDFShape,
-    SDFStyle, Style, Text, UIInputTracker, UINode, Val,
+    SDFStyle, Style, Text, TextLayout, UIInputTracker, UINode, UnderlineStyle, Val,
     nodes::Align,
 };
 
@@ -68,12 +68,14 @@ impl LayoutTree for UINode {
 }
 
 /// Where a node was laid out.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct LaidOut {
     pub top_left: Vec2,
     pub size: Vec2,
     /// Paint order, later nodes being drawn over earlier ones.
     pub stack: u32,
+    /// Where its text went.
+    pub text: Option<TextPlacement>,
 }
 
 /// Lays `nodes` out as a column in the `available` pixels at `origin` like `layout_children`,
@@ -97,8 +99,11 @@ pub(crate) fn layout_tree<T: LayoutTree>(
     let Ok(viewport) = layout.tree.new_with_children(parent, &roots.iter().map(Built::outer).collect::<Vec<_>>()) else { return vec![] };
     let space = taffy::Size { width: AvailableSpace::Definite(available.x), height: AvailableSpace::Definite(available.y) };
     let computed = layout.tree.compute_layout_with_measure(viewport, space, |inputs, _, context, style| {
-        taffy::compute_leaf_layout(inputs, style, |_, _| 0.0, |known, _| {
-            let measured = context.map_or(Vec2::ZERO, |text| text.font.measure_text(&text.content, text.font_size));
+        taffy::compute_leaf_layout(inputs, style, |_, _| 0.0, |known, available| {
+            let measured = context.map_or(Vec2::ZERO, |text| {
+                let wrap = text.wrap.then(|| known.width.or(available.width.into_option())).flatten();
+                text.font.layout(&text.content, text.font_size, wrap).size()
+            });
             taffy::Size { width: known.width.unwrap_or(measured.x), height: known.height.unwrap_or(measured.y) }
         })
     });
@@ -115,6 +120,7 @@ struct TextMeasure {
     font: Arc<SDFFont>,
     content: String,
     font_size: f32,
+    wrap: bool,
 }
 
 /// The taffy tree mirroring the nodes being laid out.
@@ -144,7 +150,7 @@ impl Layout {
         let anchor = *node.style().anchor();
         if let Some(anchor) = anchor { anchored(&mut style, anchor); }
         let id = if let Some(text) = node.style().text().as_ref().filter(|_| children.is_empty()) {
-            let measure = TextMeasure { font: text.font.clone(), content: text.content.clone(), font_size: text.font_size };
+            let measure = TextMeasure { font: text.font.clone(), content: text.content.clone(), font_size: text.font_size, wrap: text.wrap };
             self.tree.new_leaf_with_context(style, measure)
         } else {
             self.tree.new_with_children(style, &children.iter().map(Built::outer).collect::<Vec<_>>())
@@ -349,14 +355,6 @@ impl <T: LayoutTree> Emit<'_, T> {
         let dimensions = Vec2::new(layout.size.width, layout.size.height);
         let center = top_left + dimensions * 0.5;
         let (padding, border) = (layout.padding, layout.border);
-        (self.on_node)(node, LaidOut { top_left, size: dimensions, stack: self.stack });
-        self.stack += 1;
-
-        let mut children: Vec<SDFElement> = paint_order(node.children(), &built.children)
-            .into_iter()
-            .filter_map(|(child, built)| self.element(child, built, top_left))
-            .collect();
-
         // the content box's distance in from each edge: top, bottom, left, right
         let insets = [
             padding.top + border.top,
@@ -364,9 +362,21 @@ impl <T: LayoutTree> Emit<'_, T> {
             padding.left + border.left,
             padding.right + border.right,
         ];
-        if let Some(text) = style.text() {
-            children.extend(build_text_element(text, insets, top_left, dimensions));
-        }
+        let (text, placement) = match style.text() {
+            Some(text) => {
+                let (element, placement) = build_text_element(text, insets, top_left, dimensions, self.display_size);
+                (element, Some(placement))
+            }
+            None => (None, None),
+        };
+        (self.on_node)(node, LaidOut { top_left, size: dimensions, stack: self.stack, text: placement });
+        self.stack += 1;
+
+        let mut children: Vec<SDFElement> = paint_order(node.children(), &built.children)
+            .into_iter()
+            .filter_map(|(child, built)| self.element(child, built, top_left))
+            .collect();
+        children.extend(text);
 
         let shape = match style.background() {
             Background::Empty => SDFShape::Empty,
@@ -428,48 +438,145 @@ fn shape_in_content_box(outline: &Outline, dimensions: Vec2, insets: [f32; 4]) -
     SDFShape::Glyph(outline.placed(size, offset))
 }
 
-/// The glyphs of `text` placed in the box at `top_left` sized `dimensions`, `insets` (top,
-/// bottom, left, right) in from its edges.
-fn build_text_element(text: &Text, insets: [f32; 4], top_left: Vec2, dimensions: Vec2) -> Option<SDFElement> {
-    let line = text.font.render_glyph_line(&text.content, text.font_size).ok()?;
-    let (total_w, total_h) = (line.dimensions.x, line.dimensions.y);
+/// Where a node's text was drawn, in window pixels, for hit testing it.
+#[derive(Clone, Debug)]
+pub struct TextPlacement {
+    pub layout: Arc<TextLayout>,
+    /// Where the layout's top left corner went.
+    pub origin: Vec2,
+    /// The box the text shows in, its content box when it clips.
+    pub view_min: Vec2,
+    pub view_max: Vec2,
+}
+
+impl TextPlacement {
+    /// `point` in the layout's coordinates.
+    pub fn local(&self, point: Vec2) -> Vec2 { point - self.origin }
+
+    /// Whether `point` is in the box the text shows in.
+    pub fn shows(&self, point: Vec2) -> bool { point.cmpge(self.view_min).all() && point.cmple(self.view_max).all() }
+}
+
+/// A flat colored box.
+fn flat(min: Vec2, size: Vec2, color: Vec4, shape: SDFShape) -> SDFElement {
+    let style = SDFStyle { primary_color: color, border_color: TRANSPARENT, border_width: 0.0, texture: None };
+    SDFElement { center: min + size * 0.5, dimensions: size, style, shape, ..Default::default() }
+}
+
+fn rectangle() -> SDFShape { SDFShape::Rectangle(SDFRectangle::default()) }
+
+/// `text` laid out in the box at `top_left` sized `dimensions`, `insets` (top, bottom, left,
+/// right) in from its edges: span backgrounds and the selection, then the lines of glyphs, then
+/// underlines and the caret. Lines outside the window, or outside the content box of clipped
+/// text, are left out.
+fn build_text_element(text: &Text, insets: [f32; 4], top_left: Vec2, dimensions: Vec2, display_size: [f32; 2]) -> (Option<SDFElement>, TextPlacement) {
     let [top, bottom, left, right] = insets;
-    let place = |align: Align, start: f32, size: f32, before: f32, after: f32, total: f32| match align {
-        Align::Start => start + before,
-        Align::End => start + size - after - total,
-        Align::Center => start + before + (size - before - after - total) * 0.5,
+    let content_min = top_left + Vec2::new(left, top);
+    let content_size = (dimensions - Vec2::new(left + right, top + bottom)).max(Vec2::ZERO);
+    let mut layout = text.font.layout(&text.content, text.font_size, text.wrap.then_some(content_size.x));
+    layout.align(text.horizontal_align, content_size.x);
+    let size = layout.size();
+    let y = match text.vertical_align {
+        Align::Start => 0.0,
+        Align::End => content_size.y - size.y,
+        Align::Center => (content_size.y - size.y) * 0.5,
     };
-    let x_start = place(text.horizontal_align, top_left.x, dimensions.x, left, right, total_w);
-    let y_start = place(text.vertical_align, top_left.y, dimensions.y, top, bottom, total_h);
+    let origin = content_min + Vec2::new(0.0, y) - text.scroll;
+    let caret_width = crate::ui::caret_width(text.font_size);
+    // a caret at either end of clipped text still shows
+    let (view_min, view_max) = if text.clip {
+        (content_min - Vec2::new(caret_width, 0.0), content_min + content_size + Vec2::new(caret_width, 0.0))
+    } else {
+        (Vec2::ZERO, Vec2::from_array(display_size))
+    };
 
-    let glyph_style = SDFStyle { primary_color: text.color, border_color: TRANSPARENT, border_width: 0.0, texture: None };
-    let mut cur_x = x_start;
-    let glyph_y = y_start + total_h * 0.5;
-    let glyphs: Vec<SDFElement> = line
-        .chars
-        .into_iter()
-        .filter_map(|entry| {
-            let advance = entry.advance;
-            let center = Vec2::new(cur_x + advance * 0.5, glyph_y);
-            cur_x += advance;
-            entry.shape.map(|shape| SDFElement {
-                center,
-                dimensions: entry.dimensions,
-                style: glyph_style.clone(),
-                shape,
-                ..Default::default()
+    let len = text.content.len();
+    let clamp = |range: &std::ops::Range<usize>| range.start.min(len)..range.end.min(len);
+    let line_height = layout.line_height;
+    let mut children = vec![];
+    let boxes = |rects: Vec<(Vec2, Vec2)>, color: Vec4, children: &mut Vec<SDFElement>| {
+        for (min, size) in rects {
+            let min = origin + min;
+            if min.y > view_max.y || min.y + size.y < view_min.y { continue }
+            children.push(flat(min, size, color, rectangle()));
+        }
+    };
+    for span in &text.spans {
+        if let Some(background) = span.background { boxes(layout.range_rects(clamp(&span.range)), background, &mut children); }
+    }
+    if let Some(cursor) = &text.cursor && let Some(selection) = &cursor.selection {
+        boxes(layout.range_rects(clamp(selection)), cursor.selection_color, &mut children);
+    }
+
+    // the span coloring each byte, later spans winning
+    let mut colored = vec![];
+    if text.spans.iter().any(|span| span.color.is_some()) {
+        colored = vec![u32::MAX; len];
+        for (idx, span) in text.spans.iter().enumerate().filter(|(_, span)| span.color.is_some()) {
+            for at in clamp(&span.range) { colored[at] = idx as u32; }
+        }
+    }
+    let first = layout.line_at(view_min.y - origin.y);
+    let last = layout.line_at(view_max.y - origin.y);
+    for (row, line) in layout.lines.iter().enumerate().take(last + 1).skip(first) {
+        let line_y = origin.y + row as f32 * line_height + line_height * 0.5;
+        let glyphs: Vec<SDFElement> = line.glyphs.iter()
+            .filter(|glyph| {
+                let x = origin.x + line.x + glyph.x;
+                !text.clip || (x + glyph.advance >= view_min.x && x <= view_max.x)
             })
-        })
-        .collect();
+            .filter_map(|glyph| {
+                let shape = text.font.glyph(glyph.ch, text.font_size)?;
+                let color = colored.get(glyph.index).and_then(|idx| text.spans.get(*idx as usize)).and_then(|span| span.color).unwrap_or(text.color);
+                let center = Vec2::new(origin.x + line.x + glyph.x + glyph.advance * 0.5, line_y);
+                Some(flat(center - Vec2::new(glyph.advance, line_height) * 0.5, Vec2::new(glyph.advance, line_height), color, shape))
+            })
+            .collect();
+        if glyphs.is_empty() { continue }
+        let mut element = flat(Vec2::new(origin.x + line.x, line_y - line_height * 0.5), Vec2::new(line.width, line_height), text.color, SDFShape::Empty);
+        element.children = glyphs;
+        children.push(element);
+    }
 
-    Some(SDFElement {
-        center: Vec2::new(x_start + total_w * 0.5, y_start + total_h * 0.5),
-        dimensions: Vec2::new(total_w, total_h),
-        style: glyph_style,
+    for span in &text.spans {
+        let Some(underline) = span.underline else { continue };
+        let (offset, height, shape) = match underline.style {
+            UnderlineStyle::Solid => (text.font_size * 0.08, (text.font_size / 14.0).max(2.0), rectangle()),
+            UnderlineStyle::Wavy => (text.font_size * 0.06, (text.font_size * 0.25).max(4.0), SDFShape::Wave),
+        };
+        for (min, size) in layout.range_rects(clamp(&span.range)) {
+            let mut min = origin + Vec2::new(min.x, min.y + layout.baseline + offset);
+            // thin lines centered on a pixel draw crisp
+            if underline.style == UnderlineStyle::Solid { min.y = (min.y + height * 0.5).floor() + 0.5 - height * 0.5; }
+            if min.y > view_max.y || min.y + height < view_min.y { continue }
+            children.push(flat(min, Vec2::new(size.x, height), underline.color, shape.clone()));
+        }
+    }
+    if let Some(cursor) = text.cursor.as_ref().filter(|cursor| cursor.show_caret) {
+        let at = origin + layout.caret_at(cursor.caret.min(len));
+        // centered on a pixel to draw crisp
+        let x = at.x.floor() + 0.5;
+        children.push(flat(Vec2::new(x - caret_width * 0.5, at.y), Vec2::new(caret_width, line_height), cursor.caret_color, rectangle()));
+    }
+
+    let placement = TextPlacement { layout: Arc::new(layout), origin, view_min, view_max };
+    if children.is_empty() { return (None, placement) }
+    let (min, max) = if text.clip {
+        (view_min, view_max)
+    } else {
+        children.iter().fold((Vec2::INFINITY, Vec2::NEG_INFINITY), |(min, max), child| {
+            (min.min(child.center - child.dimensions * 0.5), max.max(child.center + child.dimensions * 0.5))
+        })
+    };
+    let element = SDFElement {
+        center: (min + max) * 0.5,
+        dimensions: max - min,
+        style: SDFStyle { primary_color: text.color, border_color: TRANSPARENT, border_width: 0.0, texture: None },
         shape: SDFShape::Empty,
-        children: glyphs,
+        children,
         ..Default::default()
-    })
+    };
+    (Some(element), placement)
 }
 
 #[cfg(test)]
@@ -571,14 +678,7 @@ mod tests {
         row.set_row(JustifyContent::Start, AlignItems::Start);
         let mut label = UINode::default();
         label.set_padding(Rect::single(Val::Px(4.0)));
-        label.set_text(Some(Text {
-            font: font.clone(),
-            content: "Hello".into(),
-            color: Vec4::ONE,
-            font_size: 20.0,
-            horizontal_align: Align::Start,
-            vertical_align: Align::Start,
-        }));
+        label.set_text(Some(Text::new(font.clone(), "Hello", Vec4::ONE, 20.0)));
         row.add(label);
         let elements = layout(&[row]);
         let expected = font.measure_text("Hello", 20.0) + Vec2::splat(8.0);

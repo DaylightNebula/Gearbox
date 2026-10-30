@@ -6,14 +6,15 @@ use std::{ops::RangeInclusive, sync::Arc};
 
 use ahash::AHashMap;
 use anarchy::{EntityBuilder, EntityID, Res, ResMut, Resource, SystemPin, World, after, and, before, pin};
-use crate::{App, Graphics, Plugin};
+use crate::{App, Plugin, RenderDeltaTime};
 use magician_vgpu::glam::{Vec2, Vec4};
-use winit::{keyboard::Key, raw_window_handle::HasDisplayHandle};
+use winit::keyboard::{Key, ModifiersState};
 
 use crate::ui::{
-    Align, AlignItems, Anchor, Background, JustifyContent, KeyOutcome, PositionType, Rect, RectCorners, SDFFont, Text,
-    UiClipboard, UiInput, UiTheme, UiWidgetsPlugin, UINode, UINodeSDFRoot, Val, apply_key, layout_entity_ui, pick_ui,
-    read_ui_input, themed::{restyle_themed, tooltip_window}, ui_render_pass,
+    Align, AlignItems, Anchor, Background, EditContext, JustifyContent, KeyOutcome, PositionType, Rect, RectCorners, SDFFont, Text,
+    TextCursor, TextEditor, UiClipboard, UiInput, UiTheme, UiWidgetsPlugin, UINode, UINodeSDFRoot, Val, caret_shows,
+    clamp_scroll, field_shows, follow_caret, layout_entity_ui, pick_ui, read_ui_input, show_text_inputs,
+    themed::{restyle_themed, tooltip_window}, ui_render_pass,
 };
 
 
@@ -128,6 +129,9 @@ impl Theme {
     }
 
     /// A text field's border.
+    /// Behind selected text in fields.
+    pub fn selection(&self) -> Vec4 { self.accent * Vec4::new(1.0, 1.0, 1.0, 0.35) }
+
     pub fn field_border(&self, focused: bool, hot: bool) -> Vec4 {
         if focused { self.accent } else if hot { self.dim } else { self.border }
     }
@@ -197,7 +201,7 @@ impl Plugin for WidgetPlugin {
             // entity widgets: behavior in `Start`, looks in `End`
             .add_plugin(UiWidgetsPlugin)
             .on_render_startup(spawn_tooltip)
-            .on_render_update_with(restyle_themed, and(pin(SystemPin::End), before(layout_entity_ui)))
+            .on_render_update_with(restyle_themed, and(pin(SystemPin::End), and(before(layout_entity_ui), before(show_text_inputs))))
     }
 }
 
@@ -245,6 +249,17 @@ pub struct Widget {
     active: Option<String>,
     /// Field taking typed text, and its text so far.
     focus: Option<(String, String)>,
+    /// Caret, selection and undo of the focused field.
+    editor: TextEditor,
+    /// How far the focused field is scrolled, in window pixels.
+    field_scroll: Vec2,
+    /// Seconds since the focused field's caret moved, for blinking.
+    blink: f32,
+    /// The focused field's caret moved, so its scroll should follow.
+    follow: bool,
+    modifiers: ModifiersState,
+    /// Presses in quick succession the last press ends.
+    clicks: u32,
     /// Field Enter or a click elsewhere took focus from this frame, and its final text.
     committed: Option<(String, String)>,
     /// Where iso_ui laid out last frame's widgets.
@@ -415,11 +430,23 @@ impl Widget {
 
     fn key(&mut self, key: &Key, typed: Option<&str>) {
         let Some((_, text)) = self.focus.as_mut() else { return };
-        match apply_key(text, key, typed) {
+        let context = EditContext { modifiers: self.modifiers, multiline: false, layout: None, clipboard: &self.clipboard };
+        self.blink = 0.0;
+        self.follow = true;
+        match self.editor.apply_key(text, key, typed, context) {
             KeyOutcome::Submit => self.committed = self.focus.take(),
             KeyOutcome::Cancel => self.focus = None,
             KeyOutcome::Edited | KeyOutcome::Unchanged => {}
         }
+    }
+
+    /// Gives the keyboard to the field `id`, editing `text`.
+    fn focus_field(&mut self, id: String, text: String) {
+        self.editor = TextEditor::at_end(&text);
+        self.field_scroll = Vec2::ZERO;
+        self.blink = 0.0;
+        self.follow = true;
+        self.focus = Some((id, text));
     }
 
     /// Whether a text field has the keyboard, so typing shouldn't also drive shortcuts.
@@ -518,14 +545,7 @@ impl<'a> Ui<'a> {
     /// Text without insets, `size` in logical pixels.
     fn styled_text(&self, id: Option<String>, content: &str, color: Vec4, align: Align, size: f32, bold: bool) -> UINode {
         let mut node = id.map_or_else(UINode::default, UINode::new);
-        node.set_text(self.widget.font(bold).cloned().map(|font| Text {
-            font,
-            content: content.to_string(),
-            color,
-            font_size: self.px(size),
-            horizontal_align: align,
-            vertical_align: Align::Center
-        }));
+        node.set_text(self.widget.font(bold).cloned().map(|font| Text::new(font, content, color, self.px(size)).with_align(align, Align::Center)));
         node
     }
 
@@ -984,18 +1004,12 @@ impl<'a> Ui<'a> {
     pub fn text_field(&mut self, key: &str, value: &mut String, hint: &str, width: f32) -> bool {
         let id = self.id(key);
         if self.widget.clicked(&id) && self.widget.focused(&id).is_none() {
-            self.widget.focus = Some((id.clone(), value.clone()));
+            self.widget.focus_field(id.clone(), value.clone());
         }
         let focused = self.widget.focused(&id).map(str::to_string);
         let changed = focused.as_ref().is_some_and(|text| text != value);
         if let Some(text) = focused.as_ref().filter(|_| changed) { *value = text.clone(); }
-
-        let (shown, color) = match focused {
-            Some(text) => (format!("{text}|"), self.widget.theme.text),
-            None if value.is_empty() => (hint.to_string(), self.widget.theme.dim),
-            None => (value.clone(), self.widget.theme.text)
-        };
-        self.edit_box(id, &shown, color, width);
+        self.edit_box(id, value, false, hint, width);
         changed
     }
 
@@ -1004,35 +1018,63 @@ impl<'a> Ui<'a> {
     pub fn number_field(&mut self, key: &str, text: &str, width: f32) -> Option<String> {
         let id = self.id(key);
         if self.widget.clicked(&id) && self.widget.focused(&id).is_none() {
-            self.widget.focus = Some((id.clone(), String::new()));
+            self.widget.focus_field(id.clone(), String::new());
         }
-        let (shown, color) = match self.widget.focused(&id) {
-            Some("") => (format!("{text}|"), self.widget.theme.dim),
-            Some(typed) => (format!("{typed}|"), self.widget.theme.text),
-            None => (text.to_string(), self.widget.theme.text)
-        };
-        self.edit_box(id.clone(), &shown, color, width);
+        self.edit_box(id.clone(), text, true, "", width);
         self.widget.committed.take_if(|(committed, _)| *committed == id).map(|(_, typed)| typed)
     }
 
-    fn edit_box(&mut self, id: String, shown: &str, color: Vec4, width: f32) {
+    /// A field editing `text`, or a draft replacing it if `replace`, like a `TextInput`.
+    fn edit_box(&mut self, id: String, text: &str, replace: bool, hint: &str, width: f32) {
         let theme = self.widget.theme;
-        let focused = self.widget.focused(&id).is_some();
+        let editing = self.widget.focused(&id).map(str::to_string);
+        let focused = editing.is_some();
         let hot = self.widget.is_hot(&id);
         let width = self.fill_width(self.px(width));
-        // the end of long text, where typing happens
-        let room = width - 2.0 * self.px(TEXT_INSET);
-        let mut start = 0;
-        while self.widget.text_width(&shown[start..]) > room && let Some(c) = shown[start..].chars().next() {
-            start += c.len_utf8();
-        }
-        let mut node = self.text_node(Some(id), &shown[start..], color, Align::Start);
+        let (text, draft) = match (&editing, replace) {
+            (Some(editing), false) => (editing.as_str(), None),
+            (editing, _) => (text, editing.as_deref()),
+        };
+        let (shown, placeholder) = field_shows(text, draft, hint, focused);
+        let shown = shown.to_string();
+        let color = if placeholder { theme.dim } else { theme.text };
+        let mut node = self.text_node(Some(id.clone()), &shown, color, Align::Start);
         // the border sits inside the padding
         let inset = self.px(TEXT_INSET) - 1.0;
         node.set_padding(Rect::new(Val::Px(0.0), Val::Px(0.0), Val::Px(inset + self.indent), Val::Px(inset)));
         fill(&mut node, theme.well, self.px(RADIUS));
         node.set_border(Val::Px(1.0));
         node.set_border_color(Some(theme.field_border(focused, hot)));
+
+        let view = Vec2::new(width - 2.0 * (inset + 1.0) - self.indent, self.row_height() - 2.0);
+        let content_x = self.widget.rects.get(&id).map_or(0.0, |area| area.min.x) + inset + 1.0 + self.indent;
+        if let (Some(editing), Some(text)) = (editing, node.style_mut().text_mut()) {
+            let layout = text.font.layout(&shown, text.font_size, None);
+            let widget = &mut *self.widget;
+            // the pointer places the caret and drags out selections
+            if widget.down && widget.active.as_deref() == Some(id.as_str()) {
+                let at = if placeholder { 0 } else { layout.index_at(Vec2::new(widget.cursor.x - content_x + widget.field_scroll.x, layout.line_height * 0.5)) };
+                if widget.pressed { widget.editor.click(&editing, at, widget.modifiers.shift_key(), widget.clicks); } else { widget.editor.drag(&editing, at); }
+                widget.blink = 0.0;
+                widget.follow = true;
+            }
+            widget.field_scroll = if std::mem::take(&mut widget.follow) && !placeholder {
+                follow_caret(&layout, widget.editor.caret, view, widget.field_scroll)
+            } else {
+                clamp_scroll(&layout, view, widget.field_scroll)
+            };
+            text.clip = true;
+            text.scroll = widget.field_scroll;
+            text.cursor = Some(TextCursor {
+                caret: if placeholder { 0 } else { widget.editor.caret },
+                selection: widget.editor.selection().filter(|_| !placeholder),
+                show_caret: caret_shows(widget.blink),
+                caret_color: theme.text,
+                selection_color: theme.selection(),
+            });
+        } else if let Some(text) = node.style_mut().text_mut() {
+            text.clip = true;
+        }
         self.push(node, Vec2::new(width, self.row_height()));
     }
 
@@ -1215,11 +1257,8 @@ impl Area {
     fn size(&self) -> Vec2 { self.max - self.min }
 }
 
-fn setup_widgets(world: World, mut widget: ResMut<Widget>, graphics: Res<Graphics>) {
-    let display = graphics.window().and_then(|window| window.display_handle().ok()).map(|handle| handle.as_raw());
-    let clipboard = UiClipboard::new(display);
+fn setup_widgets(world: World, mut widget: ResMut<Widget>, clipboard: Res<UiClipboard>) {
     widget.clipboard = clipboard.clone();
-    world.insert_resource(clipboard);
     widget.root = Some(world.spawn(EntityBuilder::new().push(UINodeSDFRoot::default())));
 }
 
@@ -1227,8 +1266,11 @@ fn setup_widgets(world: World, mut widget: ResMut<Widget>, graphics: Res<Graphic
 fn spawn_tooltip(world: World) { world.spawn(tooltip_window().into_entity_builder()); }
 
 /// Takes this frame's input and theme, and hit tests the pointer against last frame's layout.
-fn widgets_begin(mut widget: ResMut<Widget>, mut input: ResMut<UiInput>, theme: Res<UiTheme>) {
+fn widgets_begin(mut widget: ResMut<Widget>, mut input: ResMut<UiInput>, theme: Res<UiTheme>, delta: Res<RenderDeltaTime>) {
     let widget = &mut *widget;
+    widget.modifiers = input.modifiers;
+    widget.clicks = input.clicks;
+    widget.blink += delta.0;
     widget.theme = theme.theme;
     widget.font = theme.font.clone();
     widget.bold = theme.bold.clone();

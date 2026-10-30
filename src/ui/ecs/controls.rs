@@ -6,7 +6,12 @@ use anarchy::{Component, EntityID, Event, Query, Res, ResMut, SystemPin, World, 
 use crate::{App, Plugin};
 use serde::{Deserialize, Serialize};
 
-use crate::ui::{ComputedNode, Display, KeyOutcome, Node, PositionType, Rect, UiFocus, UiInput, Val, apply_key, pick_ui};
+use magician_vgpu::glam::{Vec2, Vec4};
+
+use crate::{RenderDeltaTime, ui::{
+    ComputedNode, Display, EditContext, EntityUiElements, KeyOutcome, Node, PositionType, Rect, TextCursor, TextEditor, UiClipboard, UiFocus,
+    UiInput, Val, caret_shows, caret_width, field_shows, follow_caret, layout_entity_ui, pick_ui, remap_spans, text_change,
+}};
 
 /// Wheel notches scroll this many rows.
 const ROWS_PER_NOTCH: f32 = 2.0;
@@ -97,28 +102,68 @@ pub struct RadioGroup { pub selected: Option<usize>, pub disabled: bool }
 pub struct RadioButton { pub index: usize }
 
 /// Takes typed text after it's clicked. Sends `ValueChange<String>` as it's edited and
-/// `Submit` when Enter or a click elsewhere hands the text back.
+/// `Submit` when Enter (Command or Control with Enter if `multiline`) or a click elsewhere hands
+/// the text back.
+///
+/// It shows itself through its node's `Text`, which the bundle spawns it with: each frame its
+/// content, caret, selection and scroll are written there, while the font, size, color, wrap
+/// and `spans` stay the bundle's. Spans follow the text as it's edited, so set them again on
+/// `ValueChange` to recolor it. Clicks place the caret, double and triple clicks select words
+/// and lines, and dragging selects.
 #[derive(Clone, Debug, Default, Component)]
 pub struct TextInput {
     pub text: String,
     pub hint: String,
     pub replace_on_focus: bool,
     pub disabled: bool,
+    /// Enter types newlines and Tab tabs, and the wheel scrolls it.
+    pub multiline: bool,
+    /// The caret, selection and undo history.
+    pub editor: TextEditor,
+    /// How far the text is scrolled, in logical pixels.
+    pub scroll: Vec2,
+    /// Colors of the caret, the selection and the hint, from the text's color if `None`.
+    pub caret_color: Option<Vec4>,
+    pub selection_color: Option<Vec4>,
+    pub hint_color: Option<Vec4>,
     draft: Option<String>,
+    /// Seconds since the caret last moved, for blinking.
+    blink: f32,
+    /// The caret moved, so the scroll should follow it.
+    follow: bool,
+    /// The node's text color while the hint's color replaces it.
+    text_color: Option<Vec4>,
 }
 
 impl TextInput {
-    pub fn new(text: impl Into<String>) -> Self { Self { text: text.into(), ..Default::default() } }
+    pub fn new(text: impl Into<String>) -> Self {
+        let text = text.into();
+        Self { editor: TextEditor::at_end(&text), text, ..Default::default() }
+    }
 
     pub fn hint(mut self, hint: impl Into<String>) -> Self { self.hint = hint.into(); self }
 
     pub fn replace_on_focus(mut self) -> Self { self.replace_on_focus = true; self }
+
+    pub fn multiline(mut self) -> Self { self.multiline = true; self }
 
     /// The text being edited: the draft while one is open, otherwise `text`.
     pub fn editing(&self) -> &str { self.draft.as_deref().unwrap_or(&self.text) }
 
     /// Whether a `replace_on_focus` draft is open.
     pub fn has_draft(&self) -> bool { self.draft.is_some() }
+
+    /// Whether it shows its hint or replaced text rather than what's typed, given whether it
+    /// has the keyboard.
+    pub fn shows_placeholder(&self, focused: bool) -> bool {
+        field_shows(&self.text, self.draft.as_deref(), &self.hint, focused).1
+    }
+
+    /// Restarts the caret's blink and scrolls to it.
+    fn moved(&mut self) {
+        self.blink = 0.0;
+        self.follow = true;
+    }
 }
 
 /// Shows its second child while open, clicking its first child opens or closes it. The header
@@ -158,7 +203,8 @@ pub struct DragHandle { pub target: Option<EntityID> }
 pub struct Tooltip(pub String);
 
 /// Runs the behavior-only widgets, in the `Start` pin after picking, so systems in the `Normal`
-/// pin see this frame's values and events. Added by `WidgetPlugin`, or on its own to style
+/// pin see this frame's values and events. `TextInput`s also write what they show into their
+/// `Text` in the `End` pin. Added by `WidgetPlugin`, or on its own to style
 /// every widget yourself.
 pub struct UiWidgetsPlugin;
 
@@ -174,6 +220,7 @@ impl Plugin for UiWidgetsPlugin {
             .on_render_update_with(toggle_collapsibles, start())
             .on_render_update_with(scroll_rows, and(start(), after(toggle_collapsibles)))
             .on_render_update_with(drag_handles, start())
+            .on_render_update_with(show_text_inputs, and(pin(SystemPin::End), before(layout_entity_ui)))
     }
 }
 
@@ -228,10 +275,25 @@ fn commit(id: EntityID, input: &mut TextInput, changed: &Event<ValueChange<Strin
         input.text = draft;
         changed.send(ValueChange { entity: id, value: input.text.clone() });
     }
+    input.editor.clamp(&input.text);
     submitted.send(Submit { entity: id, text: input.text.clone() });
 }
 
-fn edit_text_inputs(world: World, input: Res<UiInput>, mut focus: ResMut<UiFocus>, changed: Event<ValueChange<String>>, submitted: Event<Submit>) {
+/// The index under the pointer in `id`'s text as drawn last frame, if that was `text`.
+fn index_under(texts: &EntityUiElements, id: EntityID, text: &str, cursor: Vec2) -> Option<usize> {
+    let placement = texts.texts.get(&id).filter(|placement| placement.layout.len == text.len())?;
+    Some(placement.layout.index_at(placement.local(cursor)))
+}
+
+fn edit_text_inputs(
+    world: World,
+    input: Res<UiInput>,
+    texts: Res<EntityUiElements>,
+    clipboard: Res<UiClipboard>,
+    mut focus: ResMut<UiFocus>,
+    changed: Event<ValueChange<String>>,
+    submitted: Event<Submit>,
+) {
     let text_input = |id: EntityID| world.handle(id).get::<&mut TextInput>().ok().flatten();
     if input.pressed {
         let clicked = input.hovered.filter(|id| text_input(*id).is_some_and(|field| !field.disabled));
@@ -241,18 +303,48 @@ fn edit_text_inputs(world: World, input: Res<UiInput>, mut focus: ResMut<UiFocus
             }
             if let Some(new) = clicked && let Some(mut field) = text_input(new) {
                 if field.replace_on_focus { field.draft = Some(String::new()); }
+                let at = field.editing().len();
+                field.editor.set_caret(at, false);
+                field.moved();
                 focus.focused = Some(new);
             }
         }
     }
     let Some(id) = focus.focused else { return };
     let Some(mut field) = text_input(id) else { focus.focused = None; return };
+    let field = &mut *field;
+
+    // the pointer places the caret and drags out selections
+    if input.captured == Some(id) && input.down {
+        let editing = field.editing().to_string();
+        if let Some(at) = index_under(&texts, id, &editing, input.cursor) {
+            if input.pressed { field.editor.click(&editing, at, input.modifiers.shift_key(), input.clicks); } else { field.editor.drag(&editing, at); }
+            field.moved();
+        }
+    }
+    if field.multiline && input.hovered == Some(id) && input.wheel != 0.0 && let Some(placement) = texts.texts.get(&id) {
+        field.scroll.y -= input.wheel * placement.layout.line_height / input.scale.max(f32::EPSILON) * ROWS_PER_NOTCH;
+    }
+
+    let layout = texts.texts.get(&id).map(|placement| placement.layout.clone());
+    let multiline = field.multiline;
+    let mut edits = vec![];
     for (key, typed) in &input.keys {
-        let field = &mut *field;
+        let context = EditContext { modifiers: input.modifiers, multiline, layout: layout.as_deref(), clipboard: &clipboard };
+        // drafts aren't the text spans belong to
+        let drafting = field.draft.is_some();
+        let editor = &mut field.editor;
         let text = field.draft.as_mut().unwrap_or(&mut field.text);
-        match apply_key(text, key, typed.as_deref()) {
-            KeyOutcome::Edited if field.draft.is_none() => changed.send(ValueChange { entity: id, value: field.text.clone() }),
-            KeyOutcome::Edited | KeyOutcome::Unchanged => {}
+        let before = (!drafting).then(|| text.clone());
+        let outcome = editor.apply_key(text, key, typed.as_deref(), context);
+        field.blink = 0.0;
+        field.follow = true;
+        match outcome {
+            KeyOutcome::Edited => if let Some(before) = before {
+                edits.extend(text_change(&before, &field.text));
+                changed.send(ValueChange { entity: id, value: field.text.clone() });
+            },
+            KeyOutcome::Unchanged => {}
             KeyOutcome::Submit => {
                 commit(id, field, &changed, &submitted);
                 focus.focused = None;
@@ -260,10 +352,71 @@ fn edit_text_inputs(world: World, input: Res<UiInput>, mut focus: ResMut<UiFocus
             }
             KeyOutcome::Cancel => {
                 field.draft = None;
+                field.editor.clamp(&field.text);
                 focus.focused = None;
                 break
             }
         }
+    }
+    if !edits.is_empty() && let Ok(Some(mut node)) = world.handle(id).get::<&mut Node>() && let Some(text) = node.style_mut().text_mut() {
+        for (replaced, inserted) in edits { remap_spans(&mut text.spans, replaced, inserted); }
+    }
+}
+
+/// Writes each `TextInput`'s text, caret, selection and scroll into its node's `Text`, before
+/// entity nodes are laid out.
+pub(crate) fn show_text_inputs(
+    focus: Res<UiFocus>,
+    delta: Res<RenderDeltaTime>,
+    input: Res<UiInput>,
+    texts: Res<EntityUiElements>,
+    mut fields: Query<(&'static mut TextInput, &'static mut Node)>,
+) {
+    while let Ok(Some((id, (mut field, mut node)))) = fields.next() {
+        let field = &mut *field;
+        let Some(text) = node.style_mut().text_mut() else { continue };
+        let focused = focus.focused == Some(id);
+        let (shown, placeholder) = field_shows(&field.text, field.draft.as_deref(), &field.hint, focused);
+        if text.content != shown { text.content = shown.to_string(); }
+
+        // the hint's color stands in for the text's while it shows
+        if placeholder {
+            let color = *field.text_color.get_or_insert(text.color);
+            text.color = field.hint_color.unwrap_or(color * Vec4::new(1.0, 1.0, 1.0, 0.5));
+        } else if let Some(color) = field.text_color.take() {
+            text.color = color;
+        }
+        let color = field.text_color.unwrap_or(text.color);
+
+        field.blink += delta.0;
+        text.clip = true;
+        text.cursor = focused.then(|| TextCursor {
+            caret: if placeholder { 0 } else { field.editor.caret },
+            selection: field.editor.selection().filter(|_| !placeholder),
+            show_caret: caret_shows(field.blink),
+            caret_color: field.caret_color.unwrap_or(color),
+            selection_color: field.selection_color.unwrap_or(color * Vec4::new(1.0, 1.0, 1.0, 0.3)),
+        });
+
+        // scroll in logical pixels, in a view sized like last frame's
+        let Some(placement) = texts.texts.get(&id) else { continue };
+        let scale = input.scale.max(f32::EPSILON);
+        let view = (placement.view_max - placement.view_min) / scale - Vec2::new(2.0 * caret_width(placement.layout.font_size) / scale, 0.0);
+        let follow = std::mem::take(&mut field.follow) && !placeholder;
+        field.scroll = if !focused && !field.multiline {
+            Vec2::ZERO
+        } else if follow {
+            // what shows now, which the caret moved in
+            let mut layout = text.font.layout(&text.content, text.font_size, text.wrap.then_some(view.x));
+            layout.align(text.horizontal_align, view.x);
+            follow_caret(&layout, field.editor.caret, view, field.scroll)
+        } else {
+            // last frame's layout is as big as this frame's while nothing's typed
+            let size = placement.layout.size() / scale;
+            let room = (size + Vec2::new(caret_width(text.font_size), 0.0) - view).max(Vec2::ZERO);
+            field.scroll.clamp(Vec2::ZERO, room)
+        };
+        if text.scroll != field.scroll { text.scroll = field.scroll; }
     }
 }
 
@@ -377,6 +530,7 @@ mod tests {
     }
 
     use anarchy::{Resource, SingleThreadedExecutor, SystemGraph, SystemInstruction};
+    use magician_vgpu::glam::{Vec2, Vec4};
     use winit::keyboard::{Key, NamedKey};
 
     use crate::ui::{UiBundle};
@@ -395,6 +549,10 @@ mod tests {
     fn run<M: 'static>(world: &World, system: impl anarchy::IntoSystem<(), (), M> + Copy + 'static) {
         world.init_resource_with(Seen::default);
         world.init_resource_with(UiFocus::default);
+        world.init_resource_with(EntityUiElements::default);
+        world.init_resource_with(UiClipboard::default);
+        world.init_resource_with(RenderDeltaTime::default);
+        world.init_resource_with(UiInput::default);
         let mut graph = SystemGraph::new();
         graph.append_system(system, SystemInstruction::default(), std::iter::empty()).unwrap();
         graph.append_system(collect, after(system), std::iter::empty()).unwrap();
@@ -472,6 +630,76 @@ mod tests {
         let text = world.handle(field).get::<&TextInput>().unwrap().unwrap().text.clone();
         assert_eq!(text, "7");
         assert_eq!(world.resource::<Seen>().unwrap().submitted, vec!["7".to_string()]);
+    }
+
+    fn font() -> std::sync::Arc<crate::ui::SDFFont> {
+        std::sync::Arc::new(crate::ui::SDFFont::new(include_bytes!("../../../examples/LiberationSans-Regular.ttf")).unwrap())
+    }
+
+    /// Records `id`'s text as drawn at `origin`, as if laid out last frame.
+    fn place(world: &World, id: EntityID, text: &str, origin: Vec2) -> std::sync::Arc<crate::ui::TextLayout> {
+        let layout = std::sync::Arc::new(font().layout(text, 20.0, None));
+        let placement = crate::ui::TextPlacement { layout: layout.clone(), origin, view_min: origin, view_max: origin + Vec2::new(300.0, 30.0) };
+        world.resource_mut::<EntityUiElements>().unwrap().texts.insert(id, placement);
+        layout
+    }
+
+    #[test]
+    fn clicks_place_the_caret_and_drags_select() {
+        let world = World::default();
+        let field = node(&world, UiBundle::new(Node::new()).with(TextInput::new("hello world")));
+        run(&world, edit_text_inputs);
+        let layout = place(&world, field, "hello world", Vec2::new(10.0, 10.0));
+        let at = |index: usize| Vec2::new(10.0 + layout.caret_at(index).x + 0.5, 15.0);
+
+        world.insert_resource(UiInput { pressed: true, down: true, clicks: 1, hovered: Some(field), captured: Some(field), cursor: at(2), ..Default::default() });
+        run(&world, edit_text_inputs);
+        let caret = |world: &World| world.handle(field).get::<&TextInput>().unwrap().unwrap().editor.clone();
+        assert_eq!(caret(&world).caret, 2);
+        world.insert_resource(UiInput { down: true, hovered: Some(field), captured: Some(field), cursor: at(8), ..Default::default() });
+        run(&world, edit_text_inputs);
+        assert_eq!(caret(&world).selection(), Some(2..8));
+        // a double click selects the word
+        world.insert_resource(UiInput { pressed: true, down: true, clicks: 2, hovered: Some(field), captured: Some(field), cursor: at(7), ..Default::default() });
+        run(&world, edit_text_inputs);
+        assert_eq!(caret(&world).selection(), Some(6..11));
+    }
+
+    #[test]
+    fn spans_follow_typing() {
+        use crate::ui::{Text, TextSpan};
+        let world = World::default();
+        let text = Text::new(font(), "", Vec4::ONE, 20.0).with_span(TextSpan::new(0..2).color(Vec4::X)).with_span(TextSpan::new(3..5).wavy(Vec4::X));
+        let field = node(&world, UiBundle::new(Node::new().text(text)).with(TextInput::new("ab cd")));
+        world.insert_resource(UiInput { pressed: true, down: true, hovered: Some(field), ..Default::default() });
+        run(&world, edit_text_inputs);
+        // the caret starts at the end; go home and type before both spans
+        let keys = vec![(Key::Named(NamedKey::Home), None), (Key::Character("x".into()), Some("x".to_string()))];
+        world.insert_resource(UiInput { keys, ..Default::default() });
+        run(&world, edit_text_inputs);
+        let node = world.handle(field).get::<&Node>().unwrap().unwrap().clone();
+        let spans = &node.style().text().as_ref().unwrap().spans;
+        assert_eq!(spans.iter().map(|span| span.range.clone()).collect::<Vec<_>>(), vec![1..3, 4..6]);
+    }
+
+    #[test]
+    fn inputs_show_through_their_text() {
+        use crate::ui::Text;
+        let world = World::default();
+        let field = node(&world, UiBundle::new(Node::new().text(Text::new(font(), "", Vec4::ONE, 20.0))).with(TextInput::default().hint("search")));
+        run(&world, show_text_inputs);
+        let text = |world: &World| world.handle(field).get::<&Node>().unwrap().unwrap().style().text().clone().unwrap();
+        let shown = text(&world);
+        assert_eq!((shown.content.as_str(), shown.color.w, shown.cursor.is_none(), shown.clip), ("search", 0.5, true, true));
+
+        world.resource_mut::<UiFocus>().unwrap().focused = Some(field);
+        world.handle(field).get::<&mut TextInput>().unwrap().unwrap().text = "abc".into();
+        world.handle(field).get::<&mut TextInput>().unwrap().unwrap().editor.select_all("abc");
+        run(&world, show_text_inputs);
+        let shown = text(&world);
+        assert_eq!((shown.content.as_str(), shown.color), ("abc", Vec4::ONE));
+        let cursor = shown.cursor.unwrap();
+        assert_eq!((cursor.caret, cursor.selection, cursor.show_caret), (3, Some(0..3), true));
     }
 
     #[test]

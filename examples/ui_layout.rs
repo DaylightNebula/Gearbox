@@ -20,14 +20,7 @@ fn main() -> anyhow::Result<()> {
 
 fn text(font: &Arc<SDFFont>, content: &str, size: f32) -> UINode {
     let mut node = UINode::default();
-    node.set_text(Some(Text {
-        font: font.clone(),
-        content: content.into(),
-        color: Vec4::ONE,
-        font_size: size,
-        horizontal_align: Align::Start,
-        vertical_align: Align::Center,
-    }));
+    node.set_text(Some(Text::new(font.clone(), content, Vec4::ONE, size).with_align(Align::Start, Align::Center)));
     node
 }
 

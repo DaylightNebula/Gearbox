@@ -107,14 +107,7 @@ fn build_scene(world: &World, graphics: &Graphics) -> anyhow::Result<()> {
     root_b.set_border(Val::Px(1.0));
     root_b.set_border_radius(RectCorners::single(Val::Px(15.0)));
     root_b.set_listener(|_, interaction| log::info!("Test Listener Triggered! {interaction:?}"));
-    root_b.set_text(Some(Text {
-        font,
-        content: "Hello World!".into(),
-        color: Vec4::ONE,
-        font_size: 24.0,
-        horizontal_align: Align::End,
-        vertical_align: Align::End,
-    }));
+    root_b.set_text(Some(Text::new(font, "Hello World!", Vec4::ONE, 24.0).with_align(Align::End, Align::End)));
 
     root.add(root_a);
     root.add(root_b);

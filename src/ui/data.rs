@@ -119,8 +119,9 @@ impl Default for SDFStyle {
 /// `Empty` draws no visible geometry (only children are rendered), `Circle`
 /// is a filled circle inscribed in the element's dimensions, `Rectangle` is
 /// a rounded rectangle with per-corner radii, `Bezier` is a single bezier
-/// stroke defined by three control-point offsets, and `Glyph` is a vector
-/// glyph composed of one or more bezier strokes.
+/// stroke defined by three control-point offsets, `Glyph` is a vector
+/// glyph composed of one or more bezier strokes, and `Wave` is a squiggly line
+/// filling the box, as tall as it is.
 #[derive(Default, Debug, Clone, PartialEq)]
 pub enum SDFShape {
     #[default]
@@ -128,7 +129,8 @@ pub enum SDFShape {
     Circle,
     Rectangle(SDFRectangle),
     Bezier(SDFCurve),
-    Glyph(Vec<SDFCurve>)
+    Glyph(Vec<SDFCurve>),
+    Wave
 }
 
 /// Per-corner radii of a rounded rectangle.

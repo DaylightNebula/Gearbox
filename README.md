@@ -193,6 +193,20 @@ in a single fullscreen pass over the scene, laid out like CSS flexbox with
   events, and `Node::shape` draws vector icons. **Prefer building your own `UiBundle`s for
   retained UI**; the `themed::` builders give the immediate mode look and suit tools and debug
   panels.
+- **Text and text inputs:** a node's `Text` (`Text::new(font, content, color, size)`) can be
+  multiline, wrap and clip, and carries `TextSpan`s set on the `UiBundle`, each coloring,
+  highlighting, underlining (solid or wavy) or giving a hover to a run of the text. A
+  `TextInput` on the node makes it a single line or `multiline()` field with a caret,
+  selection, word and line movement, undo and clipboard shortcuts, drawing through that same
+  `Text`, so its spans follow edits. Hovered spans send `TextHover` events.
+
+```rust
+let code = UiBundle::new(Node::new().size(px(400.0), px(200.0)).padding(Rect::single(px(6.0))))
+    .text(Text::new(font.clone(), "let x = y;", Vec4::ONE, 16.0))
+    .spans([TextSpan::new(0..3).color(srgb(0x569CD6)), TextSpan::new(8..9).wavy(srgb(0xF14C4C)).hover("unknown `y`")])
+    .with(TextInput::new("let x = y;").multiline())
+    .interactive();
+```
 - **Immediate mode widgets:** with `WidgetPlugin`, describe windows every frame through the
   `Widget` resource.
 
@@ -376,6 +390,6 @@ cargo run --example basic
 cargo run --example shapes
 cargo run --example textured
 cargo run --example editor --features editor
-cargo run --example ui_widgets          # also ui_basic, ui_layout, ui_bundles, ui_entity_widgets, ui_custom_slider, ui_shapes
+cargo run --example ui_widgets          # also ui_basic, ui_layout, ui_bundles, ui_entity_widgets, ui_custom_slider, ui_shapes, ui_text_input
 cargo run --example skeletal_viewer --features skeletal -- path/to/model.glb
 ```

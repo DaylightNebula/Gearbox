@@ -1,6 +1,6 @@
 ---
 name: ui-entity-widgets
-description: Use when building retained, Bevy-style UI with gearbox's ui module (gearbox::ui) - entity UI nodes built as UiBundles (Node, UiBundle, into_entity_builder, find_named, reserve_id/with_id, despawning), filled vector shapes and icons (Outline, Node::shape), hover styling, behavior-only widget components (Button, Checkbox, Slider, RadioGroup/RadioButton, TextInput, Collapsible, ScrollRows, DragHandle, Tooltip) and their events (Activate, ValueChange, Submit), the ready-styled themed:: builders (panel, button, slider, text_input, section, scroll_rows, ...; prefer hand-built UiBundles for app UI), themed::Label text, styling your own widgets, UiTheme/Theme colors and per-tree ThemeOverride, and UiInput for pointer and keyboard state. For Style and layout see the gearbox ui-layout skill.
+description: Use when building retained, Bevy-style UI with gearbox's ui module (gearbox::ui) - entity UI nodes built as UiBundles (Node, UiBundle, into_entity_builder, find_named, reserve_id/with_id, despawning), filled vector shapes and icons (Outline, Node::shape), hover styling, behavior-only widget components (Button, Checkbox, Slider, RadioGroup/RadioButton, TextInput single and multiline text fields with caret, selection, undo, clipboard, colored/underlined TextSpans and span hovers, Collapsible, ScrollRows, DragHandle, Tooltip) and their events (Activate, ValueChange, Submit), the ready-styled themed:: builders (panel, button, slider, text_input, section, scroll_rows, ...; prefer hand-built UiBundles for app UI), themed::Label text, styling your own widgets, UiTheme/Theme colors and per-tree ThemeOverride, and UiInput for pointer and keyboard state. For Style and layout see the gearbox ui-layout skill.
 ---
 
 # gearbox ui: entity widgets
@@ -33,10 +33,7 @@ A hand-built button is a node, a behavior and a look:
 ```rust
 /// A pill button showing `text`, sending `Activate` when clicked.
 fn pill_button(font: &std::sync::Arc<SDFFont>, text: &str) -> UiBundle {
-    let label = Text {
-        font: font.clone(), content: text.into(), color: Vec4::ONE, font_size: 15.0,
-        horizontal_align: Align::Center, vertical_align: Align::Center,
-    };
+    let label = Text::new(font.clone(), text, Vec4::ONE, 15.0).with_align(Align::Center, Align::Center);
     UiBundle::new(Node::row().padding(Rect::new(px(6.0), px(6.0), px(14.0), px(14.0)))
             .radius(px(16.0)).background(srgb(0x2C2C2E)).text(label))
         .with(Button::default())
@@ -102,7 +99,7 @@ event.
 | `Checkbox { checked, disabled }` | flips on click | `ValueChange<bool>` |
 | `Slider { value, min, max, step, scale, disabled }` | follows the pointer while dragged; `Slider::new(min, max, v)`, `Slider::log(..)`, `.step(1.0)`; `fraction()` gives 0..1 | `ValueChange<f64>` |
 | `RadioGroup { selected }` + `RadioButton { index }` | a button selects its index in the nearest group above it | `ValueChange<usize>` (entity = group) |
-| `TextInput { text, hint, replace_on_focus, disabled }` | click to focus, type, Enter or click elsewhere hands it back; `editing()` is the text shown while typing | `ValueChange<String>` while typing, `Submit { entity, text }` |
+| `TextInput { text, hint, replace_on_focus, disabled, multiline, editor, scroll, .. }` | click to focus and place the caret, type, Enter (Command/Control+Enter if `multiline`) or click elsewhere hands it back; draws through the node's `Text`, see Text inputs below | `ValueChange<String>` while typing, `Submit { entity, text }` |
 | `Collapsible { open }` | clicking its first child (needs an `Interaction`) shows or hides its second | `ValueChange<bool>` |
 | `ScrollRows { first, visible }` | shows `visible` of the `ScrollItem` nodes below it, scrolled by the wheel; `rows` is the count | none |
 | `DragHandle { target }` | dragging moves `target` (or its parent if `None`), an absolutely positioned node | none |
@@ -132,6 +129,59 @@ fn show_sliders(world: World, mut sliders: Query<&'static Slider>) {
     }
 }
 ```
+
+## Text inputs
+
+A `TextInput` shows itself through its node's `Text`, given on the bundle. Each frame it
+writes the text (or hint), caret, selection and scroll there, and turns on `clip`; the font,
+size, color, `wrap` and spans stay yours. Build fields from `UiBundle`s:
+
+```rust
+fn search_box(font: &std::sync::Arc<SDFFont>) -> UiBundle {
+    UiBundle::new(Node::new().size(px(300.0), px(30.0)).padding(Rect::single(px(6.0))).background(srgb(0x1E1E1E)).radius(px(4.0)))
+        .text(Text::new(font.clone(), "", Vec4::ONE, 16.0).with_align(Align::Start, Align::Center))
+        .with(TextInput::default().hint("Search…"))
+        .interactive()
+}
+
+/// A code editor: `spans` color and mark the text, and follow it as it's edited.
+fn code_editor(font: &std::sync::Arc<SDFFont>, code: &str) -> UiBundle {
+    UiBundle::new(Node::new().size(px(520.0), px(240.0)).padding(Rect::single(px(6.0))).background(srgb(0x1E1E1E)))
+        .text(Text::new(font.clone(), code, srgb(0xD4D4D4), 16.0))
+        .spans([
+            TextSpan::new(0..2).color(srgb(0x569CD6)),
+            TextSpan::new(3..7).wavy(srgb(0xF14C4C)).hover("unused function"),
+        ])
+        .with(TextInput::new(code).multiline())
+        .interactive()
+        .named("code")
+}
+
+/// Highlights the code again whenever it's edited.
+fn rehighlight(world: World, changed: Event<ValueChange<String>>) {
+    for change in changed.read() {
+        if let Ok(Some(mut node)) = world.handle(change.entity).get::<&mut Node>()
+            && let Some(text) = node.style_mut().text_mut() {
+            text.spans = vec![]; // your highlighter's spans for `change.value`
+        }
+    }
+}
+```
+
+- **Editing:** clicks place the caret, double and triple clicks select words and lines, and
+  dragging selects. Arrows move (Alt on macOS, Control elsewhere, by word; Command on macOS by
+  line), Home/End go to the line's ends, and Command (macOS) or Control does select all, copy,
+  cut, paste, undo and redo (Shift+Z or Y). `multiline` fields take Enter and Tab, scroll with
+  the wheel, and move by line with Up and Down.
+- **State:** `editor` (a `TextEditor`) holds the caret, `selection()` and undo history; set
+  `editor.caret`/`anchor` to move it. `scroll` is in logical pixels.
+- **Looks:** `caret_color`, `selection_color` and `hint_color` default to the text's color
+  (the selection and hint fainter).
+- **Spans follow edits:** typing inside a span grows it, typing at its ends doesn't, and
+  deleting shrinks it. Set them again on `ValueChange` to recolor.
+- **Hovers:** a span's `hover` shows in the themed tooltip window (with `WidgetPlugin`) and
+  sends `TextHover` events; `UiInput::hovered_span` holds the current one. Hovers work on any
+  node's text, not just inputs.
 
 ## Shapes and icons
 
@@ -221,8 +271,10 @@ The pins of the render graph:
 - **`End`:** themed widgets restyle, then everything is laid out and drawn.
 
 Picking uses last frame's layout, so there's one frame of latency. `UiInput` holds `cursor`,
-`down`/`pressed`/`released`, `wheel`, `keys`, `hovered`, `captured` and `wants_pointer()`,
-which tells game input whether the pointer belongs to the UI.
+`down`/`pressed`/`released`, `clicks` (2 for a double click), `wheel`, `keys`, `modifiers`
+(`command()` is Command on macOS, Control elsewhere), `hovered`, `captured`, `hovered_span`
+and `wants_pointer()`, which tells game input whether the pointer belongs to the UI.
+`UiClipboard` is the OS clipboard (`text()`, `set_text(..)`), kept in memory on the web.
 
 ## Themed widgets
 
@@ -287,6 +339,8 @@ frame. Prefer your own `UiBundle`s for app UI (see above); these suit tools and 
   nodes among themselves.
 - **Scrolling** is by whole rows: `ScrollRows` hides rows rather than clipping them.
 - **Typing** reaches `TextInput`s through window keyboard events, so the window needs focus.
+- **A `TextInput` needs a `Text`** on its node to show anything: give it one on the bundle
+  (themed fields make their own).
 - **Headless testing:** headless apps get no input. A test can send
   `gearbox::WindowEvent(winit::event::WindowEvent::CursorMoved { .. })` and `MouseInput`
   through `world.send_event` (use `winit::event::DeviceId::dummy()`). Key events can't be

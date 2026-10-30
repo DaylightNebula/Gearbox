@@ -178,6 +178,10 @@ fn walk_shape_tree(parent: SDFShape, point: vec2<f32>) -> vec4<f32> {
                     color = blend_shape(color, point, shape, style, d);
                     // color = vec4<f32>(-d, -d, -d, 1.0);
                 }
+                case 5: {
+                    let d = sdf_wave(point, shape.center, shape.dimensions);
+                    color = blend_shape(color, point, shape, style, d);
+                }
                 default: {}
             }
         } else if metadata.mode == 1 {
@@ -266,6 +270,18 @@ fn sdf_rectangle(
 
     let d = abs(point - center) - size + r;
     return length(max(d, vec2<f32>(0.0))) + min(max(d.x, d.y), 0.0) - r;
+}
+
+// A sine wave across a box `dimensions` big, its stroke 0.4 of the box's height thick. Edges fade
+// over a pixel, so the stroke is at least 1.6 to draw solid.
+fn sdf_wave(point: vec2<f32>, center: vec2<f32>, dimensions: vec2<f32>) -> f32 {
+    let thickness = max(dimensions.y * 0.4, 1.6);
+    let amplitude = max(dimensions.y - thickness, 0.0) * 0.5;
+    let k = 6.2831853 / max(dimensions.y * 2.5, 1.0);
+    let p = point - center;
+    // the vertical gap scaled by the slope approximates the distance to the curve
+    let slope = amplitude * k * cos(p.x * k);
+    return abs(p.y - amplitude * sin(p.x * k)) / sqrt(1.0 + slope * slope) - thickness * 0.5;
 }
 
 fn dot2(v: vec2<f32>) -> f32 {

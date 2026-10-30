@@ -80,7 +80,7 @@ pub enum Themed {
     Toggle,
     /// A slider track, its value shown by its parent's second child with `suffix` after it.
     Slider { value_label: bool, suffix: String, decimals: usize, width: f32 },
-    TextInput { width: f32 },
+    TextInput,
     Segmented,
     ListRow,
     Header,
@@ -265,8 +265,12 @@ fn field(input: TextInput, width: f32) -> UiBundle {
     UiBundle::new(fixed().size(px(width), px(ROW)).padding(insets(TEXT_INSET - 1.0, TEXT_INSET - 1.0)).border(1.0, NONE))
         .with(input)
         .interactive()
-        .with(Label::new(""))
-        .with(Themed::TextInput { width })
+        .with(Themed::TextInput)
+}
+
+/// The text of a themed text field, before it's typed in.
+fn field_text(font: std::sync::Arc<crate::ui::SDFFont>, theme: &Theme) -> Text {
+    Text::new(font, "", theme.text, FONT_SIZE).with_align(Align::Start, Align::Center).with_clip()
 }
 
 /// A single line text field `width` logical pixels wide, showing `hint` while empty.
@@ -549,28 +553,28 @@ impl Restyle<'_> {
                     });
                 }
             }
-            Themed::TextInput { width } => {
-                let Some(field) = get::<TextInput>(world, id) else { return };
+            Themed::TextInput => {
                 let focused = self.focus.focused == Some(id);
-                let (shown, color) = match (focused, field.has_draft()) {
-                    (true, true) if field.editing().is_empty() => (format!("{}|", field.text), theme.dim),
-                    (true, _) => (format!("{}|", field.editing()), theme.text),
-                    (false, _) if field.text.is_empty() => (field.hint.clone(), theme.dim),
-                    (false, _) => (field.text.clone(), theme.text),
-                };
-                // the end of long text, where typing happens
-                let room = width - 2.0 * TEXT_INSET;
-                let mut start = 0;
-                while measure(&local, &shown[start..], FONT_SIZE, false) > room && let Some(c) = shown[start..].chars().next() {
-                    start += c.len_utf8();
-                }
+                let placeholder = world.handle(id).get::<&mut TextInput>().ok().flatten().is_some_and(|mut field| {
+                    field.hint_color = Some(theme.dim);
+                    field.caret_color = Some(theme.text);
+                    field.selection_color = Some(theme.selection());
+                    field.shows_placeholder(focused)
+                });
+                let font = local.font(false).cloned();
                 style(world, Some(id), |style| {
                     fill(style, theme.well, RADIUS);
                     style.set_border_color(Some(theme.field_border(focused, self.hot(id))));
-                });
-                label_of(world, Some(id), |label| {
-                    label.text = shown[start..].to_string();
-                    label.color = Some(color);
+                    match (style.text_mut(), font) {
+                        (Some(text), Some(font)) => {
+                            text.font = font;
+                            text.font_size = FONT_SIZE;
+                            // `show_text_inputs` puts the hint's color in its place
+                            if !placeholder { text.color = theme.text; }
+                        }
+                        (None, Some(font)) => { style.set_text(Some(field_text(font, theme))); }
+                        _ => {}
+                    }
                 });
             }
             Themed::Segmented => {
@@ -695,7 +699,9 @@ impl Restyle<'_> {
                 });
             }
             Themed::Tooltip => {
-                let hint = self.input.hovered.and_then(|hovered| get::<Tooltip>(world, hovered));
+                // a hovered text span's hover wins over its node's tooltip
+                let span = self.input.hovered_span.as_ref().map(|hover| Tooltip(hover.text.clone()));
+                let hint = span.or_else(|| self.input.hovered.and_then(|hovered| get::<Tooltip>(world, hovered)));
                 let scale = self.input.scale.max(f32::EPSILON);
                 let at = self.input.cursor / scale + Vec2::splat(16.0);
                 style(world, Some(id), |style| {
@@ -723,13 +729,8 @@ pub(crate) fn restyle_themed(world: World, theme: Res<UiTheme>, input: Res<UiInp
     while let Ok(Some((id, (label, mut node)))) = labels.next() {
         let local = local_theme(&world, id, &theme);
         let color = if has::<Dim>(&world, id) { local.theme.dim } else { label.color.unwrap_or(local.theme.text) };
-        node.style_mut().set_text(local.font(label.bold).cloned().map(|font| Text {
-            font,
-            content: label.text.clone(),
-            color,
-            font_size: label.size.px(),
-            horizontal_align: label.align,
-            vertical_align: Align::Center,
+        node.style_mut().set_text(local.font(label.bold).cloned().map(|font| {
+            Text::new(font, label.text.clone(), color, label.size.px()).with_align(label.align, Align::Center)
         }));
     }
 }

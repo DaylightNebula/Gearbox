@@ -18,6 +18,7 @@ use crate::ui::shader::{
 
 pub mod data;
 pub mod ecs;
+pub mod edit;
 pub mod fonts;
 pub mod nodes;
 pub mod shader;
@@ -25,6 +26,7 @@ pub mod widgets;
 
 pub use data::*;
 pub use ecs::*;
+pub use edit::*;
 pub use fonts::*;
 pub use nodes::*;
 pub use widgets::*;
@@ -45,9 +47,12 @@ impl Plugin for UIPlugin {
             .add_resource(UiInput::default())
             .add_resource(UiFocus::default())
             .add_resource(EntityUiElements::default())
+            .add_resource(UiClipboard::default())
             .on_render_startup_with(init_resources, pin(SystemPin::Start))
+            .on_render_startup_with(init_clipboard, pin(SystemPin::Start))
             .on_render_update_with(read_ui_input, pin(SystemPin::Start))
             .on_render_update_with(pick_ui, and(pin(SystemPin::Start), after(read_ui_input)))
+            .on_render_update_with(hover_text_spans, and(pin(SystemPin::Start), after(pick_ui)))
             // drawn over the main pass, which runs in the `Normal` pin
             .on_render_update_with(layout_entity_ui, and(pin(SystemPin::End), before(ui_render_pass)))
             .on_render_update_with(ui_render_pass, pin(SystemPin::End))
@@ -81,6 +86,13 @@ impl std::fmt::Debug for UIRenderResources {
     }
 }
 
+/// Connects `UiClipboard` to the OS clipboard once there's a window.
+fn init_clipboard(mut clipboard: ResMut<UiClipboard>, graphics: Res<Graphics>) {
+    use winit::raw_window_handle::HasDisplayHandle;
+    let display = graphics.window().and_then(|window| window.display_handle().ok()).map(|handle| handle.as_raw());
+    *clipboard = UiClipboard::new(display);
+}
+
 /// Allocates UI GPU buffers, bind group, and pipeline on render startup.
 fn init_resources(
     world: World,
@@ -88,18 +100,27 @@ fn init_resources(
     bindless_vault: Res<BindlessArrayTextureVault>,
     atlas_vault: Res<AtlasTextureVault>,
 ) {
-    // each of these is bound as a fixed-size `array<T, N>` inside a single uniform
-    // binding, so N is capped by the device's max_uniform_buffer_binding_size (on
-    // WebGL2 this is commonly ~16KB, far below native's 64KB+). MAX_BUFFER_ELEMENTS is
-    // the ceiling; shrink per-type if the device can't fit that many.
-    let uniform_limit = graphics.device().limits().max_uniform_buffer_binding_size as u32;
-    let max_shapes = (uniform_limit / std::mem::size_of::<SDFRawShape>() as u32).min(MAX_BUFFER_ELEMENTS);
-    let max_styles = (uniform_limit / std::mem::size_of::<SDFRawStyle>() as u32).min(MAX_BUFFER_ELEMENTS);
-    let max_rectangles = (uniform_limit / std::mem::size_of::<SDFRawRectangle>() as u32).min(MAX_BUFFER_ELEMENTS);
-    let max_bezier = (uniform_limit / std::mem::size_of::<SDFRawBezier>() as u32).min(MAX_BUFFER_ELEMENTS);
-    let max_glyphs = (uniform_limit / std::mem::size_of::<SDFRawGlyph>() as u32).min(MAX_BUFFER_ELEMENTS);
-    let max_texture_rects =
-        (uniform_limit / std::mem::size_of::<SDFRawTextureRect>() as u32).min(MAX_BUFFER_ELEMENTS);
+    // where the device can read storage buffers in fragment shaders (not WebGL2), the shapes
+    // live in storage buffers and only the 16 bit pointers cap them. Elsewhere each is a
+    // fixed-size `array<T, N>` inside a single uniform binding, so N is capped by the
+    // device's max_uniform_buffer_binding_size (on WebGL2 commonly ~16KB, far below
+    // native's 64KB+). MAX_BUFFER_ELEMENTS is the ceiling; shrink per-type if the device
+    // can't fit that many.
+    let limits = graphics.device().limits();
+    let storage = limits.max_storage_buffers_per_shader_stage >= STORAGE_BINDINGS;
+    let (usage, element_limit, cap) = if storage {
+        (wgpu::BufferUsages::STORAGE, limits.max_storage_buffer_binding_size as u64, MAX_STORAGE_ELEMENTS)
+    } else {
+        (wgpu::BufferUsages::UNIFORM, limits.max_uniform_buffer_binding_size as u64, MAX_BUFFER_ELEMENTS)
+    };
+    let usage = usage | wgpu::BufferUsages::COPY_DST;
+    let fit = |size: usize| (element_limit / size as u64).min(cap as u64) as u32;
+    let max_shapes = fit(std::mem::size_of::<SDFRawShape>());
+    let max_styles = fit(std::mem::size_of::<SDFRawStyle>());
+    let max_rectangles = fit(std::mem::size_of::<SDFRawRectangle>());
+    let max_bezier = fit(std::mem::size_of::<SDFRawBezier>());
+    let max_glyphs = fit(std::mem::size_of::<SDFRawGlyph>());
+    let max_texture_rects = fit(std::mem::size_of::<SDFRawTextureRect>());
 
     // create metadata buffer
     let metadata_buffer = MutableBuffer::new(
@@ -115,35 +136,35 @@ fn init_resources(
     // create shapes buffer
     let shapes_buffer = TreeBuffer::new(
         &*graphics,
-        wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        usage,
         max_shapes,
     );
 
     // create styles buffer
     let styles_buffer = ChunkedBuffer::new(
         &*graphics,
-        wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        usage,
         max_styles,
     );
 
     // create rectangles buffer
     let rectangles_buffer = ChunkedBuffer::new(
         &*graphics,
-        wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        usage,
         max_rectangles,
     );
 
     // create bezier's buffer
     let bezier_buffer = ChunkedBuffer::new(
         &*graphics,
-        wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        usage,
         max_bezier,
     );
 
     // create glyphs buffer
     let glyphs_buffer = ChunkedBuffer::new(
         &*graphics,
-        wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        usage,
         max_glyphs,
     );
 
@@ -151,11 +172,21 @@ fn init_resources(
     // when the bindless backend is active)
     let texture_rects_buffer = ChunkedBuffer::new(
         &*graphics,
-        wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        usage,
         max_texture_rects,
     );
 
     // create bind group layout
+    let shape_entry = |binding| wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility: if storage { wgpu::ShaderStages::FRAGMENT } else { wgpu::ShaderStages::VERTEX_FRAGMENT },
+        ty: wgpu::BindingType::Buffer {
+            ty: if storage { wgpu::BufferBindingType::Storage { read_only: true } } else { wgpu::BufferBindingType::Uniform },
+            has_dynamic_offset: false,
+            min_binding_size: None,
+        },
+        count: None,
+    };
     let bind_group_layout =
         graphics
             .device()
@@ -171,66 +202,12 @@ fn init_resources(
                         },
                         count: None,
                     },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 3,
-                        visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 4,
-                        visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 5,
-                        visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 6,
-                        visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
+                    shape_entry(1),
+                    shape_entry(2),
+                    shape_entry(3),
+                    shape_entry(4),
+                    shape_entry(5),
+                    shape_entry(6),
                 ],
                 label: Some("SDF UI BGL"),
             });
@@ -307,38 +284,25 @@ fn init_resources(
             ShaderSource {
                 // the array lengths declared in main.wgsl must match the buffer
                 // capacities above (`max_*`), so patch them in at load time rather
-                // than hardcoding 1000 in the shader source
-                source: include_str!("shaders/main.wgsl")
-                    .replacen(
-                        "array<SDFShape, 1000>",
-                        &format!("array<SDFShape, {max_shapes}>"),
-                        1,
-                    )
-                    .replacen(
-                        "array<SDFStyle, 1000>",
-                        &format!("array<SDFStyle, {max_styles}>"),
-                        1,
-                    )
-                    .replacen(
-                        "array<SDFRectangle, 1000>",
-                        &format!("array<SDFRectangle, {max_rectangles}>"),
-                        1,
-                    )
-                    .replacen(
-                        "array<SDFBezier, 1000>",
-                        &format!("array<SDFBezier, {max_bezier}>"),
-                        1,
-                    )
-                    .replacen(
-                        "array<SDFGlyph, 1000>",
-                        &format!("array<SDFGlyph, {max_glyphs}>"),
-                        1,
-                    )
-                    .replacen(
-                        "array<SDFTextureRect, 1000>",
-                        &format!("array<SDFTextureRect, {max_texture_rects}>"),
-                        1,
-                    )
+                // than hardcoding 1000 in the shader source, or make them storage
+                source: [
+                    ("SDFShape", max_shapes),
+                    ("SDFStyle", max_styles),
+                    ("SDFRectangle", max_rectangles),
+                    ("SDFBezier", max_bezier),
+                    ("SDFGlyph", max_glyphs),
+                    ("SDFTextureRect", max_texture_rects),
+                ]
+                    .into_iter()
+                    .fold(include_str!("shaders/main.wgsl").to_string(), |source, (ty, max)| {
+                        let declared = format!("var<uniform> {}: array<{ty}, 1000>", binding_name(ty));
+                        let patched = if storage {
+                            format!("var<storage, read> {}: array<{ty}>", binding_name(ty))
+                        } else {
+                            format!("var<uniform> {}: array<{ty}, {max}>", binding_name(ty))
+                        };
+                        source.replacen(&declared, &patched, 1)
+                    })
                     .replacen("__TEXTURE_GROUP__", texture_group_src, 1)
                     .replacen("__SAMPLE_TEXTURE_BODY__", sample_body_src, 1),
                 main_function: "fs_final".into(),
@@ -361,9 +325,28 @@ fn init_resources(
     });
 }
 
-/// Most elements of each kind the UI buffers hold. Shaders address them with 16 bit pointers,
-/// and a font's glyph curves alone run past 1000.
+/// Most elements of each kind the uniform UI buffers hold. Shaders address them with 16 bit
+/// pointers, and a font's glyph curves alone run past 1000.
 const MAX_BUFFER_ELEMENTS: u32 = 4096;
+
+/// Most elements of each kind the storage UI buffers hold, one glyph being one shape. The 16
+/// bit pointers allow up to `0xFFFE`.
+const MAX_STORAGE_ELEMENTS: u32 = 16384;
+
+/// Storage buffers the UI shader binds.
+const STORAGE_BINDINGS: u32 = 6;
+
+/// The name main.wgsl binds the `ty` array under.
+fn binding_name(ty: &str) -> &'static str {
+    match ty {
+        "SDFShape" => "shapes",
+        "SDFStyle" => "styles",
+        "SDFRectangle" => "rectangles",
+        "SDFBezier" => "bezier",
+        "SDFGlyph" => "glyphs",
+        _ => "texture_rects",
+    }
+}
 
 /// Flattens the UI tree, uploads it, and draws a fullscreen SDF pass over the frame.
 pub(crate) fn ui_render_pass(

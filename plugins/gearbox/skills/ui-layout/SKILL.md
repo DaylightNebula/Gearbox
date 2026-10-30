@@ -1,6 +1,6 @@
 ---
 name: ui-layout
-description: Use when building UI with gearbox's ui module (gearbox::ui) - adding UIPlugin, laying nodes out with CSS flexbox (flex_direction, justify_content, align_items, gap, grow/shrink/basis, wrap, grid), sizing with Val (Px, Percent, PercentWidth/PercentHeight), the box model (margin, padding, border), anchoring UI to parts of the window or filling the screen (Anchor), absolute positioning, z_index, text with SDFFont, colors and backgrounds (including vector shapes), and UINodeSDFRoot node trees with their hover/press events and listeners. For widgets see the gearbox ui-entity-widgets and ui-immediate-widgets skills.
+description: Use when building UI with gearbox's ui module (gearbox::ui) - adding UIPlugin, laying nodes out with CSS flexbox (flex_direction, justify_content, align_items, gap, grow/shrink/basis, wrap, grid), sizing with Val (Px, Percent, PercentWidth/PercentHeight), the box model (margin, padding, border), anchoring UI to parts of the window or filling the screen (Anchor), absolute positioning, z_index, text with SDFFont (multiline, wrapping, clipping, colored/underlined TextSpans with hovers), colors and backgrounds (including vector shapes), and UINodeSDFRoot node trees with their hover/press events and listeners. For widgets see the gearbox ui-entity-widgets and ui-immediate-widgets skills.
 ---
 
 # gearbox ui: layout and nodes
@@ -90,9 +90,18 @@ Set with `Style`'s setters (`set_width(..)`, which return `&mut Style`) on a `UI
     for a filled vector shape over the content box, or `Empty`);
   - `border_color`;
   - `border_radius` (`RectCorners::single(px(6.0))`; `Percent(0.5)` makes a pill or circle).
-- **Text:** `set_text(Some(Text { font, content, color, font_size, horizontal_align,
-  vertical_align }))`. A text node with no children is as big as its text plus padding. Text
-  doesn't wrap.
+- **Text:** `set_text(Some(Text::new(font, content, color, font_size)))`, then
+  `.with_align(horizontal, vertical)` (both `Start` by default), `.with_wrap()` to wrap words
+  at the content box's width, and `.with_clip()` to hide what falls outside the content box
+  (`scroll` moves clipped text). Newlines start new lines. A text node with no children is as
+  big as its text plus padding.
+  - **Spans:** `.with_span(TextSpan::new(range))` or `with_spans(..)` draw byte ranges of the
+    text differently: `.color(..)`, `.background(..)`, `.underline(..)`, `.wavy(..)` (a
+    squiggle, like an error marker) and `.hover(text)`. Later spans win where they overlap.
+    Hovered spans show in themed tooltips and send `TextHover { entity, span, index, text }`
+    (also `UiInput::hovered_span`).
+  - `SDFFont::layout(text, size, wrap)` gives the `TextLayout` text is drawn with: lines,
+    glyph positions, `index_at(point)`, `caret_at(index)` and `range_rects(range)`.
 
 ### Colors
 
@@ -145,14 +154,7 @@ fn spawn_hello(world: &World, font: Arc<SDFFont>) {
     button.set_padding(Rect::single(Val::Px(8.0)));
     button.set_margin(Rect::single(Val::Px(20.0)));
     button.set_background(Background::Color(srgb(0x2A2A33)));
-    button.set_text(Some(Text {
-        font,
-        content: "Hello".into(),
-        color: Vec4::ONE,
-        font_size: 20.0,
-        horizontal_align: Align::Start,
-        vertical_align: Align::Center,
-    }));
+    button.set_text(Some(Text::new(font, "Hello", Vec4::ONE, 20.0).with_align(Align::Start, Align::Center)));
     button.set_listener(|_world, interaction| log::info!("now {interaction:?}"));
     spawn(world, vec![Box::new(UINodeSDFRoot(button))]);
 }
@@ -172,11 +174,11 @@ fn on_press(pressed: Event<UINodePressedEvent>) {
 
 ## Gotchas
 
-- **Element limits.** The SDF buffers hold a few thousand elements. Each glyph is one
-  element, so long text adds up; keep big lists in widget scroll lists.
-- **No clipping.** `Overflow::Clip` doesn't clip yet, so children can draw outside their
-  parent.
-- **No wrapping.** Text never wraps; size the node or shorten the text.
+- **Element limits.** Each glyph is one element. Where the GPU has storage buffers (desktop)
+  the SDF buffers hold 16384 elements of each kind; on WebGL2 they're uniform buffers holding
+  a few hundred to a few thousand. Lines of text outside the window, or outside the content
+  box of clipped text, aren't drawn, so long clipped text only costs what shows.
+- **No `Overflow::Clip`.** `Overflow` isn't implemented; clip text with `Text::with_clip`.
 - **Auto margins** are zero, not CSS's centering margins. Center with `justify`/`align` or an
   anchor.
 - **Borders take room.** A 1px border with 8px padding leaves the content 9px in from the

@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{ops::Range, sync::Arc};
 
 use anarchy::World;
 use derive_more::{Deref, DerefMut};
@@ -296,6 +296,9 @@ impl Style {
         self
     }
 
+    /// The text to change in place, if the node has any.
+    pub fn text_mut(&mut self) -> Option<&mut Text> { self.text.as_mut() }
+
     /// Pins the node to `anchor` of its parent, see `Anchor`.
     pub fn set_anchored(&mut self, anchor: Anchor) -> &mut Self {
         self.anchor = Some(anchor);
@@ -316,7 +319,10 @@ impl Style {
         style.padding = style.padding.scaled(factor);
         style.border_radius = style.border_radius.scaled(factor);
         if let PositionType::Absolute(edges) = &mut style.position_type { *edges = edges.scaled(factor); }
-        if let Some(text) = &mut style.text { text.font_size *= factor; }
+        if let Some(text) = &mut style.text {
+            text.font_size *= factor;
+            text.scroll *= factor;
+        }
         style
     }
 }
@@ -625,6 +631,7 @@ pub enum Interaction {
     Pressed,
 }
 
+/// Text a node draws in its content box. Newlines start new lines. Build one with `Text::new`.
 #[derive(Clone, Getters, Setters, Debug)]
 #[getset(get = "pub", set = "pub")]
 pub struct Text {
@@ -632,6 +639,107 @@ pub struct Text {
     pub content: String,
     pub color: Vec4,
     pub font_size: f32,
+    /// Places each line across the content box.
     pub horizontal_align: Align,
+    /// Places the block of lines down the content box.
     pub vertical_align: Align,
+    /// Runs drawn differently, later spans winning where they overlap.
+    pub spans: Vec<TextSpan>,
+    /// Wraps words onto new lines to fit the content box's width.
+    pub wrap: bool,
+    /// Hides what falls outside the content box, rather than the node's whole box.
+    pub clip: bool,
+    /// Moves the text up and left by this much, for scrolling a clipped box.
+    pub scroll: Vec2,
+    /// A caret and selection to draw, for text being edited.
+    pub cursor: Option<TextCursor>,
+}
+
+impl Text {
+    /// `content` in `font` at `font_size` logical pixels, aligned to the top left.
+    pub fn new(font: Arc<SDFFont>, content: impl Into<String>, color: Vec4, font_size: f32) -> Self {
+        Self {
+            font,
+            content: content.into(),
+            color,
+            font_size,
+            horizontal_align: Align::Start,
+            vertical_align: Align::Start,
+            spans: vec![],
+            wrap: false,
+            clip: false,
+            scroll: Vec2::ZERO,
+            cursor: None,
+        }
+    }
+
+    pub fn with_align(mut self, horizontal: Align, vertical: Align) -> Self {
+        self.horizontal_align = horizontal;
+        self.vertical_align = vertical;
+        self
+    }
+
+    pub fn with_spans(mut self, spans: impl IntoIterator<Item = TextSpan>) -> Self { self.spans = spans.into_iter().collect(); self }
+
+    /// Adds one span.
+    pub fn with_span(mut self, span: TextSpan) -> Self { self.spans.push(span); self }
+
+    pub fn with_wrap(mut self) -> Self { self.wrap = true; self }
+
+    pub fn with_clip(mut self) -> Self { self.clip = true; self }
+}
+
+/// A run of a `Text`'s bytes drawn differently from the rest, like a highlighted keyword or an
+/// error. Ranges past the end of the text are cut off.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct TextSpan {
+    pub range: Range<usize>,
+    /// Overrides the text's color.
+    pub color: Option<Vec4>,
+    /// Fills the box behind the run.
+    pub background: Option<Vec4>,
+    pub underline: Option<Underline>,
+    /// Shown by themed tooltips while the pointer is over the run, which also sends
+    /// `TextHover` events.
+    pub hover: Option<String>,
+}
+
+impl TextSpan {
+    pub fn new(range: Range<usize>) -> Self { Self { range, ..Default::default() } }
+
+    pub fn color(mut self, color: Vec4) -> Self { self.color = Some(color); self }
+
+    pub fn background(mut self, color: Vec4) -> Self { self.background = Some(color); self }
+
+    pub fn underline(mut self, color: Vec4) -> Self { self.underline = Some(Underline { color, style: UnderlineStyle::Solid }); self }
+
+    /// A squiggly underline, like a code editor's error marker.
+    pub fn wavy(mut self, color: Vec4) -> Self { self.underline = Some(Underline { color, style: UnderlineStyle::Wavy }); self }
+
+    pub fn hover(mut self, hover: impl Into<String>) -> Self { self.hover = Some(hover.into()); self }
+}
+
+/// A line under a `TextSpan`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Underline {
+    pub color: Vec4,
+    pub style: UnderlineStyle,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum UnderlineStyle {
+    #[default]
+    Solid,
+    Wavy,
+}
+
+/// The caret and selection of text being edited, as byte offsets.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TextCursor {
+    pub caret: usize,
+    pub selection: Option<Range<usize>>,
+    /// Draws the caret, off between blinks.
+    pub show_caret: bool,
+    pub caret_color: Vec4,
+    pub selection_color: Vec4,
 }
