@@ -133,12 +133,14 @@ pub enum SDFShape {
     Wave
 }
 
-/// Per-corner radii of a rounded rectangle.
-///
-/// Components are ordered `(top-left, top-right, bottom-right, bottom-left)`.
+/// A rounded rectangle with per-corner radii and per-side border widths.
 #[derive(Default, Debug, Copy, Clone, PartialEq)]
 pub struct SDFRectangle {
-    pub radii: Vec4
+    /// Corner radii ordered `(bottom-right, bottom-left, top-right, top-left)`.
+    pub radii: Vec4,
+    /// Border widths ordered `(top, bottom, left, right)`, drawn in the style's border color.
+    /// Rectangles use these instead of `SDFStyle::border_width`.
+    pub borders: Vec4,
 }
 
 /// A bezier stroke relative to an element's center.

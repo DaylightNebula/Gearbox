@@ -290,8 +290,8 @@ impl Layout {
         if let Some(anchor) = anchor { anchored(&mut style, anchor); }
         let id = if let Some(text) = node.style().text().as_ref().filter(|_| children.is_empty()) {
             let room = |val: Val| val.eval(&self.display_size).unwrap_or(0.0);
-            let padding = node.style().padding();
-            let inset = room(*padding.left()) + room(*padding.right()) + 2.0 * room(*node.style().border());
+            let (padding, border) = (node.style().padding(), node.style().border());
+            let inset = room(*padding.left()) + room(*padding.right()) + room(*border.left()) + room(*border.right());
             let measure = TextMeasure { font: text.font.clone(), content: text.content.clone(), font_size: text.font_size, wrap: text.wrap, inset };
             self.tree.new_leaf_with_context(style, measure)
         } else {
@@ -365,8 +365,7 @@ impl Layout {
             Overflow::Scroll => taffy::Overflow::Scroll,
             Overflow::Auto => taffy::Overflow::Hidden,
         };
-        let border = room(*style.border());
-        let padding = style.padding();
+        let (padding, border) = (style.padding(), style.border());
 
         let mut out = taffy::Style {
             display: match style.display() {
@@ -382,7 +381,7 @@ impl Layout {
             aspect_ratio: style.aspect_ratio().map(|ratio| if ratio == 0.0 { display_size[0] / display_size[1].max(0.001) } else { ratio }),
             margin: rect(style.margin(), &margin),
             padding: taffy::Rect { left: room(*padding.left()), right: room(*padding.right()), top: room(*padding.top()), bottom: room(*padding.bottom()) },
-            border: taffy::Rect { left: border, right: border, top: border, bottom: border },
+            border: taffy::Rect { left: room(*border.left()), right: room(*border.right()), top: room(*border.top()), bottom: room(*border.bottom()) },
             flex_direction: match style.flex_direction() {
                 FlexDirection::Row => taffy::FlexDirection::Row,
                 FlexDirection::Column => taffy::FlexDirection::Column,
@@ -584,7 +583,10 @@ impl <T: LayoutTree> Emit<'_, T> {
         let shape = match style.background() {
             Background::Empty => SDFShape::Empty,
             Background::Shape(outline, _) => shape_in_content_box(outline, dimensions, insets),
-            _ => SDFShape::Rectangle(SDFRectangle { radii: radii(style, dimensions, self.display_size) }),
+            _ => SDFShape::Rectangle(SDFRectangle {
+                radii: radii(style, dimensions, self.display_size),
+                borders: Vec4::new(border.top, border.bottom, border.left, border.right),
+            }),
         };
         Some(SDFElement {
             center,
@@ -627,7 +629,7 @@ impl <T: LayoutTree> Emit<'_, T> {
 
 /// The tracks and thumbs of `scrolled`'s bars, drawn as `bar` says, the thumbs lit if `hovered`.
 fn scrollbar_elements(scrolled: &Scrolled, bar: &Scrollbar, hovered: bool) -> Vec<SDFElement> {
-    let pill = || SDFShape::Rectangle(SDFRectangle { radii: Vec4::splat(bar.width / 2.0) });
+    let pill = || SDFShape::Rectangle(SDFRectangle { radii: Vec4::splat(bar.width / 2.0), ..Default::default() });
     let thumb_color = if hovered { bar.thumb_hovered } else { bar.thumb };
     let mut elements = vec![];
     for rects in scrolled.bars.iter().flatten() {
@@ -904,6 +906,47 @@ mod tests {
         node.add(UINode::default());
         let elements = layout(&[node]);
         assert_eq!(bounds(&elements[0].children[0]), (Vec2::splat(10.0), Vec2::new(80.0, 0.0)));
+    }
+
+    /// A node with a top 4, bottom 0, left 2 and right 6 border, filled so it draws.
+    fn bordered_sides() -> UINode {
+        let mut node = sized(100.0, 100.0);
+        node.set_border_sides(Rect::new(Val::Px(4.0), Val::Px(0.0), Val::Px(2.0), Val::Px(6.0)));
+        node.set_background(Background::Color(Vec4::ONE));
+        node
+    }
+
+    #[test]
+    fn border_sides_inset_content_on_their_own() {
+        let mut node = bordered_sides();
+        node.add(UINode::default());
+        let elements = layout(&[node]);
+        assert_eq!(bounds(&elements[0].children[0]), (Vec2::new(2.0, 4.0), Vec2::new(92.0, 0.0)));
+    }
+
+    #[test]
+    fn border_sides_reach_the_rectangle() {
+        let elements = layout(&[bordered_sides()]);
+        let SDFShape::Rectangle(rectangle) = elements[0].shape else { panic!("expected a rectangle, got {:?}", elements[0].shape) };
+        assert_eq!(rectangle.borders, Vec4::new(4.0, 0.0, 2.0, 6.0));
+    }
+
+    #[test]
+    fn even_border_reaches_every_side() {
+        let mut node = sized(100.0, 100.0);
+        node.set_border(Val::Px(3.0));
+        node.set_background(Background::Color(Vec4::ONE));
+        let elements = layout(&[node]);
+        let SDFShape::Rectangle(rectangle) = elements[0].shape else { panic!("expected a rectangle, got {:?}", elements[0].shape) };
+        assert_eq!(rectangle.borders, Vec4::splat(3.0));
+        assert_eq!(elements[0].style.border_width, 3.0);
+    }
+
+    #[test]
+    fn border_sides_scale() {
+        let mut style = Style::default();
+        style.set_border_sides(Rect::new_bottom(Val::Px(1.5)));
+        assert_eq!(*style.scaled(2.0).border(), Rect::new_bottom(Val::Px(3.0)));
     }
 
     #[test]

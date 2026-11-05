@@ -201,8 +201,9 @@ pub struct Style {
     max_height: Val,
     margin: Rect,
     padding: Rect,
-    /// Width of the border, inside the node's size like padding.
-    border: Val,
+    /// Width of the border on each side, inside the node's size like padding.
+    #[getset(skip)]
+    border: Rect,
     border_radius: RectCorners,
     border_color: Option<Vec4>,
     flex_direction: FlexDirection,
@@ -253,7 +254,7 @@ impl Default for Style {
             max_height: Val::Auto,
             margin: Rect::default(),
             padding: Rect::default(),
-            border: Val::Auto,
+            border: Rect::default(),
             border_radius: RectCorners::default(),
             border_color: None,
             flex_direction: FlexDirection::default(),
@@ -307,6 +308,21 @@ impl Style {
         self
     }
 
+    /// Width of the border on each side.
+    pub fn border(&self) -> &Rect { &self.border }
+
+    /// Sets every side of the border to `width`.
+    pub fn set_border(&mut self, width: Val) -> &mut Self {
+        self.border = Rect::single(width);
+        self
+    }
+
+    /// Sets each side of the border on its own, a `Val::Auto` side drawing none.
+    pub fn set_border_sides(&mut self, widths: Rect) -> &mut Self {
+        self.border = widths;
+        self
+    }
+
     /// Sets `overflow_x` and `overflow_y`.
     pub fn set_overflow(&mut self, overflow: Overflow) -> &mut Self {
         self.overflow_x = overflow;
@@ -331,13 +347,14 @@ impl Style {
         let mut style = self.clone();
         for val in [
             &mut style.width, &mut style.height, &mut style.min_width, &mut style.min_height,
-            &mut style.max_width, &mut style.max_height, &mut style.border, &mut style.row_gap,
+            &mut style.max_width, &mut style.max_height, &mut style.row_gap,
             &mut style.column_gap, &mut style.flex_basis,
         ] {
             *val = val.scaled(factor);
         }
         style.margin = style.margin.scaled(factor);
         style.padding = style.padding.scaled(factor);
+        style.border = style.border.scaled(factor);
         style.border_radius = style.border_radius.scaled(factor);
         if let PositionType::Absolute(edges) | PositionType::Fixed(edges) = &mut style.position_type { *edges = edges.scaled(factor); }
         style.scroll *= factor;

@@ -37,8 +37,11 @@ struct SDFStyle {
     texture_ptr: u32
 };
 
+// - radii: (bottom right, bottom left, top right, top left)
+// - borders: widths of the (top, bottom, left, right) sides
 struct SDFRectangle {
-    radii: vec4<f32>
+    radii: vec4<f32>,
+    borders: vec4<f32>
 };
 
 struct SDFBezier {
@@ -143,8 +146,10 @@ fn walk_shape_tree(parent: SDFShape, point: vec2<f32>) -> vec4<f32> {
                 }
                 case 2: {
                     let rectangle = rectangles[shape_ptr];
-                    let d = sdf_rectangle(point, shape.center, shape.dimensions * vec2<f32>(0.5, 0.5), rectangle.radii);
-                    color = blend_shape(color, point, shape, style, d);
+                    let half = shape.dimensions * vec2<f32>(0.5, 0.5);
+                    let d = sdf_rectangle(point, shape.center, half, rectangle.radii);
+                    let fill_d = sdf_rectangle_inside_border(point, shape.center, half, rectangle.radii, rectangle.borders);
+                    color = blend_bordered(color, point, shape, style, d, fill_d);
                 }
                 case 3: {
                     let bezier = bezier[shape_ptr];
@@ -202,12 +207,26 @@ fn walk_shape_tree(parent: SDFShape, point: vec2<f32>) -> vec4<f32> {
     return color;
 }
 
+// Blends a shape whose border is `style.border_width` thick all around.
 fn blend_shape(
     color: vec4<f32>,
     point: vec2<f32>,
     shape: SDFShape,
     style: SDFStyle,
     d: f32
+) -> vec4<f32> {
+    return blend_bordered(color, point, shape, style, d, d + style.border_width);
+}
+
+// Blends a shape `d` from its outer edge and `fill_d` from the edge of its fill, the border
+// showing between the two.
+fn blend_bordered(
+    color: vec4<f32>,
+    point: vec2<f32>,
+    shape: SDFShape,
+    style: SDFStyle,
+    d: f32,
+    fill_d: f32
 ) -> vec4<f32> {
     // calculate primary color with texture
     var primary_color = style.primary_color;
@@ -217,11 +236,14 @@ fn blend_shape(
         primary_color = tex_color * primary_color;
     }
 
-    // blend fill and border premultiplied, so a transparent border doesn't darken the fill
-    let border_mult = clamp(-d - style.border_width, 0.0, 1.0);
+    // blend fill and border premultiplied, so a transparent border doesn't darken the fill. The
+    // border covers only what the shape does past the fill, so a side with no border shows
+    // none of its color along the anti-aliased edge
+    let shape_cover = clamp(-d, 0.0, 1.0);
+    let fill_cover = min(clamp(-fill_d, 0.0, 1.0), shape_cover);
     let fill = vec4<f32>(primary_color.rgb * primary_color.a, primary_color.a);
     let border = vec4<f32>(style.border_color.rgb * style.border_color.a, style.border_color.a);
-    let local_color = mix(border, fill, border_mult) * clamp(-d, 0.0, 1.0);
+    let local_color = fill * fill_cover + border * (shape_cover - fill_cover);
     if local_color.a <= 0.0 { return color; }
 
     // premultiplied "over", shapes walked later sit on top
@@ -270,6 +292,29 @@ fn sdf_rectangle(
 
     let d = abs(point - center) - size + r;
     return length(max(d, vec2<f32>(0.0))) + min(max(d.x, d.y), 0.0) - r;
+}
+
+// Distance to the edge of a rounded rectangle's fill, inset from its outer edge by `borders`:
+// the (top, bottom, left, right) widths. Each inner corner is rounded by the outer radius less
+// the wider of the sides meeting there, which for even sides is the outline `-d = width`.
+fn sdf_rectangle_inside_border(
+    point: vec2<f32>,
+    center: vec2<f32>,
+    size: vec2<f32>,
+    radii: vec4<f32>,
+    borders: vec4<f32>
+) -> f32 {
+    let top_left = center - size + vec2<f32>(borders.z, borders.x);
+    let bottom_right = center + size - vec2<f32>(borders.w, borders.y);
+    let inner_center = (top_left + bottom_right) * 0.5;
+    let inner_size = max((bottom_right - top_left) * 0.5, vec2<f32>(0.0));
+    let inner_radii = max(radii - vec4<f32>(
+        max(borders.y, borders.w),
+        max(borders.y, borders.z),
+        max(borders.x, borders.w),
+        max(borders.x, borders.z)
+    ), vec4<f32>(0.0));
+    return sdf_rectangle(point, inner_center, inner_size, inner_radii);
 }
 
 // A sine wave across a box `dimensions` big, its stroke 0.4 of the box's height thick. Edges fade

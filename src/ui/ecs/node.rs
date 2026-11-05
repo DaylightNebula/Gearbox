@@ -86,6 +86,14 @@ impl Node {
         self
     }
 
+    /// A border in `color` as wide on each side as `widths` says, inside the node's size. A
+    /// `Val::Auto` side draws none, so `Rect::new_bottom(px(1.0))` is an underline.
+    pub fn border_sides(mut self, widths: Rect, color: Vec4) -> Self {
+        self.0.set_border_sides(widths);
+        self.0.set_border_color(Some(color));
+        self
+    }
+
     /// Rounds every corner by `radius`.
     pub fn radius(mut self, radius: Val) -> Self { self.0.set_border_radius(RectCorners::single(radius)); self }
 

@@ -93,6 +93,12 @@ impl TreeBufferContent for SDFRawShape {
                                 sdfrectangle.radii.y.into(),
                                 sdfrectangle.radii.z.into(),
                                 sdfrectangle.radii.w.into()
+                            ),
+                            borders: (
+                                sdfrectangle.borders.x.into(),
+                                sdfrectangle.borders.y.into(),
+                                sdfrectangle.borders.z.into(),
+                                sdfrectangle.borders.w.into()
                             )
                         }
                     ])
@@ -230,7 +236,8 @@ impl ChunkedBufferContent for SDFRawStyle {}
 #[derive(Debug, Default, Clone, Copy, Hash, PartialEq, Eq)]
 #[repr(C)]
 pub struct SDFRawRectangle {
-    pub radii: (OrderedFloat<f32>, OrderedFloat<f32>, OrderedFloat<f32>, OrderedFloat<f32>)
+    pub radii: (OrderedFloat<f32>, OrderedFloat<f32>, OrderedFloat<f32>, OrderedFloat<f32>),
+    pub borders: (OrderedFloat<f32>, OrderedFloat<f32>, OrderedFloat<f32>, OrderedFloat<f32>),
 }
 
 unsafe impl Pod for SDFRawRectangle {}
