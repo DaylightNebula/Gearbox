@@ -530,7 +530,7 @@ pub enum AlignContent {
 }
 
 /// Text alignment within its node.
-#[derive(Default, Debug, Clone, Copy, Hash)]
+#[derive(Default, Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Align {
     #[default]
     Start,
