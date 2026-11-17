@@ -3,12 +3,9 @@ struct VertexOutput {
 };
 
 @group(0) @binding(0) var<uniform> metadata: SDFMetadata;
-@group(0) @binding(1) var<uniform> shapes: array<SDFShape, 1000>;
-@group(0) @binding(2) var<uniform> styles: array<SDFStyle, 1000>;
-@group(0) @binding(3) var<uniform> rectangles: array<SDFRectangle, 1000>;
-@group(0) @binding(4) var<uniform> bezier: array<SDFBezier, 1000>;
-@group(0) @binding(5) var<uniform> glyphs: array<SDFGlyph, 1000>;
-@group(0) @binding(6) var<uniform> texture_rects: array<SDFTextureRect, 1000>;
+// the shape buffers (bindings 1-6) and their `*_at` accessors, filled in by gearbox: plain
+// struct arrays where storage buffers exist, packed `vec4<u32>` uniform arrays elsewhere (WebGL2)
+__SHAPE_BUFFERS__
 
 __TEXTURE_GROUP__
 
@@ -63,7 +60,7 @@ struct SDFTextureRect {
 };
 
 // Bindless: samples `ui_textures[ptr]` directly at `local_uv`.
-// Atlas: remaps `local_uv` into `texture_rects[ptr]`'s pixel-space rect on the shared
+// Atlas: remaps `local_uv` into `texture_rect_at(ptr)`'s pixel-space rect on the shared
 // atlas page, normalized by the page's current size.
 fn sample_ui_texture(ptr: u32, local_uv: vec2<f32>) -> vec4<f32> {
     __SAMPLE_TEXTURE_BODY__
@@ -110,7 +107,7 @@ fn walk_shape_tree(parent: SDFShape, point: vec2<f32>) -> vec4<f32> {
 
     while stack_length > 0 {
         let current = stack[stack_length - 1];
-        let shape = shapes[current];
+        let shape = shape_at(current);
         stack_length--;
 
         // check if the point is influenced by this shape
@@ -135,7 +132,7 @@ fn walk_shape_tree(parent: SDFShape, point: vec2<f32>) -> vec4<f32> {
 
         let shape_ptr = shape.looks_ptrs >> 16;
         let style_ptr = shape.looks_ptrs & 0xFFFF;
-        let style = styles[style_ptr];
+        let style = style_at(style_ptr);
 
         // update with result with my color
         if metadata.mode == 0 {
@@ -145,25 +142,25 @@ fn walk_shape_tree(parent: SDFShape, point: vec2<f32>) -> vec4<f32> {
                     color = blend_shape(color, point, shape, style, d);
                 }
                 case 2: {
-                    let rectangle = rectangles[shape_ptr];
+                    let rectangle = rectangle_at(shape_ptr);
                     let half = shape.dimensions * vec2<f32>(0.5, 0.5);
                     let d = sdf_rectangle(point, shape.center, half, rectangle.radii);
                     let fill_d = sdf_rectangle_inside_border(point, shape.center, half, rectangle.radii, rectangle.borders);
                     color = blend_bordered(color, point, shape, style, d, fill_d);
                 }
                 case 3: {
-                    let bezier = bezier[shape_ptr];
+                    let bezier = bezier_at(shape_ptr);
                     let d = sdf_bezier(point, shape.center + bezier.a_off, shape.center + bezier.b_off, shape.center + bezier.c_off, bezier.thickness);
                     color = blend_shape(color, point, shape, style, d);
                 }
                 case 4: {
-                    let glyph = glyphs[shape_ptr];
+                    let glyph = glyph_at(shape_ptr);
                     var min_dist2 = 1000000000.0;
                     var winding   = 0;
 
                     var i = 0u;
                     while (glyph.count > i) {
-                        let curve = bezier[glyph.start_idx + i];
+                        let curve = bezier_at(glyph.start_idx + i);
                         let A = curve.a_off + shape.center;
                         let B = curve.b_off + shape.center;
                         let C = curve.c_off + shape.center;
@@ -254,7 +251,7 @@ fn blend_bordered(
 fn fs_final(in: VertexOutput) -> @location(0) vec4<f32> {
     let point = in.screen_position.xy;
 
-    let shape = shapes[0];
+    let shape = shape_at(0u);
     let color = walk_shape_tree(shape, point);
     // the pipeline blends straight alpha
     if color.a <= 0.0 { return vec4<f32>(0.0); }

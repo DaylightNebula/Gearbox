@@ -49,7 +49,7 @@ fn setup_egui(
     ));
     let renderer = egui_wgpu::Renderer::new(
         graphics.device(),
-        graphics.config().format,
+        graphics.render_format(),
         egui_wgpu::RendererOptions::default()
     );
 

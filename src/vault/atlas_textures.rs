@@ -328,7 +328,8 @@ pub fn update_atlas_textures(
             // already-grown) size, nothing to copy forward yet
             let page = StaticTexture::empty_texure(&*graphics, atlas_page_descriptor(), page_width, page_height);
             vault.page.set(page);
-            vault.atlas_size_buffer.set(MutableBuffer::new(&*graphics, &Vec4::new(page_width as f32, page_height as f32, 0.0, 0.0), wgpu::BufferUsages::UNIFORM));
+            // COPY_DST: the size is rewritten whenever the page grows
+            vault.atlas_size_buffer.set(MutableBuffer::new(&*graphics, &Vec4::new(page_width as f32, page_height as f32, 0.0, 0.0), wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST));
         } else if let Some(new_size) = grew {
             // grow the page, preserving existing content via a GPU-side copy so already
             // (permanently) placed textures don't need to be re-uploaded from the CPU

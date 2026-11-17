@@ -64,7 +64,10 @@ impl ApplicationHandler<()> for AppWrapper {
     }
 
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        #[cfg_attr(not(target_arch = "wasm32"), allow(unused_mut))]
+        let mut window_attributes = self.app.window_attributes.clone();
 
+        // on the web, draw into the page's canvas
         #[cfg(target_arch = "wasm32")]
         {
             use wasm_bindgen::{JsCast, UnwrapThrowExt};
@@ -77,9 +80,15 @@ impl ApplicationHandler<()> for AppWrapper {
             let canvas = document.get_element_by_id(CANVAS_ID).unwrap_throw();
             let html_canvas_element = canvas.unchecked_into();
             window_attributes = window_attributes.with_canvas(Some(html_canvas_element));
+
+            // the page's CSS sizes the canvas; a requested window size would be written over it
+            // as inline styles, leaving the canvas that size whatever the browser window is
+            window_attributes.inner_size = None;
+            window_attributes.min_inner_size = None;
+            window_attributes.max_inner_size = None;
         }
 
-        let window = Arc::new(event_loop.create_window(self.app.window_attributes.clone()).unwrap());
+        let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
 
         #[cfg(not(target_arch = "wasm32"))]
         {
@@ -109,13 +118,16 @@ impl ApplicationHandler<()> for AppWrapper {
             let world = self.app.world.clone();
             let present_mode = self.present_mode();
             wasm_bindgen_futures::spawn_local(async move {
-                let size = window.inner_size();
-                let mut vgpu = VirtualGpu::new(window).await;
+                let mut vgpu = VirtualGpu::new(window.clone()).await;
                 vgpu.config_mut().present_mode = present_mode;
                 world.insert_resource(Graphics(vgpu));
                 world.insert_resource(Frame::default());
-                // configure now, a redraw may be requested before the first resize
+
+                // resizes and redraws that came while the GPU started had nothing to act on, so
+                // size the surface to the canvas as it is now and ask for the first frame
+                let size = window.inner_size();
                 crate::app::configure_surface(&world, size.width, size.height);
+                window.request_redraw();
             });
         }
 

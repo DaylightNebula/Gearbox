@@ -66,7 +66,9 @@ impl Plugin for UIPlugin {
 /// to that pipeline, `metadata_buffer` holds per-frame screen size/time/mode,
 /// `shapes_buffer` stores the flattened element tree, and the remaining chunked
 /// buffers hold deduplicated styles, rectangle radii, bezier curves, and glyph
-/// headers referenced by shapes.
+/// headers referenced by shapes. `previous_frame` keeps the tree drawn last frame until the
+/// next one is uploaded, so its chunk handles stay reserved: unchanged chunks are then found
+/// again by content instead of being freed and uploaded again every frame.
 #[derive(Resource, Getters)]
 #[getset(get = "pub")]
 pub struct UIRenderResources {
@@ -79,6 +81,7 @@ pub struct UIRenderResources {
     pub bezier_buffer: ChunkedBuffer<SDFRawBezier>,
     pub glyphs_buffer: ChunkedBuffer<SDFRawGlyph>,
     pub texture_rects_buffer: ChunkedBuffer<SDFRawTextureRect>,
+    pub previous_frame: std::sync::Mutex<Option<SDFElement>>,
 }
 
 impl std::fmt::Debug for UIRenderResources {
@@ -266,7 +269,7 @@ fn init_resources(
     } else {
         (
             "@group(1) @binding(0) var ui_atlas_page: texture_2d<f32>;\n@group(1) @binding(1) var<uniform> ui_atlas_size: vec4<f32>;\n@group(1) @binding(2) var ui_sampler: sampler;",
-            "let rect = texture_rects[ptr].rect;\n    let atlas_uv = (rect.xy + local_uv * rect.zw) / ui_atlas_size.xy;\n    return textureSampleLevel(ui_atlas_page, ui_sampler, atlas_uv, 0.0);",
+            "let rect = texture_rect_at(ptr).rect;\n    let atlas_uv = (rect.xy + local_uv * rect.zw) / ui_atlas_size.xy;\n    return textureSampleLevel(ui_atlas_page, ui_sampler, atlas_uv, 0.0);",
             atlas_vault.bind_group_layout(&*graphics),
         )
     };
@@ -283,27 +286,21 @@ fn init_resources(
         .source(
             ShaderType::Fragment,
             ShaderSource {
-                // the array lengths declared in main.wgsl must match the buffer
-                // capacities above (`max_*`), so patch them in at load time rather
-                // than hardcoding 1000 in the shader source, or make them storage
-                source: [
-                    ("SDFShape", max_shapes),
-                    ("SDFStyle", max_styles),
-                    ("SDFRectangle", max_rectangles),
-                    ("SDFBezier", max_bezier),
-                    ("SDFGlyph", max_glyphs),
-                    ("SDFTextureRect", max_texture_rects),
-                ]
-                    .into_iter()
-                    .fold(include_str!("shaders/main.wgsl").to_string(), |source, (ty, max)| {
-                        let declared = format!("var<uniform> {}: array<{ty}, 1000>", binding_name(ty));
-                        let patched = if storage {
-                            format!("var<storage, read> {}: array<{ty}>", binding_name(ty))
-                        } else {
-                            format!("var<uniform> {}: array<{ty}, {max}>", binding_name(ty))
-                        };
-                        source.replacen(&declared, &patched, 1)
-                    })
+                // the shape buffers' declarations depend on the binding type, and uniform
+                // arrays must be sized to the buffer capacities above (`max_*`)
+                source: include_str!("shaders/main.wgsl")
+                    .replacen(
+                        "__SHAPE_BUFFERS__",
+                        &shape_buffers_src(storage, [
+                            max_shapes,
+                            max_styles,
+                            max_rectangles,
+                            max_bezier,
+                            max_glyphs,
+                            max_texture_rects,
+                        ]),
+                        1,
+                    )
                     .replacen("__TEXTURE_GROUP__", texture_group_src, 1)
                     .replacen("__SAMPLE_TEXTURE_BODY__", sample_body_src, 1),
                 main_function: "fs_final".into(),
@@ -323,6 +320,7 @@ fn init_resources(
         bezier_buffer,
         glyphs_buffer,
         texture_rects_buffer,
+        previous_frame: std::sync::Mutex::new(None),
     });
 }
 
@@ -337,16 +335,105 @@ const MAX_STORAGE_ELEMENTS: u32 = 16384;
 /// Storage buffers the UI shader binds.
 const STORAGE_BINDINGS: u32 = 6;
 
-/// The name main.wgsl binds the `ty` array under.
-fn binding_name(ty: &str) -> &'static str {
-    match ty {
-        "SDFShape" => "shapes",
-        "SDFStyle" => "styles",
-        "SDFRectangle" => "rectangles",
-        "SDFBezier" => "bezier",
-        "SDFGlyph" => "glyphs",
-        _ => "texture_rects",
-    }
+/// One shape buffer of the UI shader, in binding order (bindings 1 to 6).
+///
+/// Fields:
+/// * name: The array's name in the shader.
+/// * ty: The WGSL struct of one element.
+/// * accessor: The shader function that reads element `i`.
+/// * words: How many `vec4<u32>` one element takes (its `SDFRaw*` size / 16).
+/// * unpack: WGSL that builds the struct from words `w0`, `w1`, ... of a packed element.
+struct ShapeBuffer {
+    name: &'static str,
+    ty: &'static str,
+    accessor: &'static str,
+    words: u32,
+    unpack: &'static str,
+}
+
+/// The UI shader's shape buffers, matching the `SDFRaw*` layouts in [`shader`].
+const SHAPE_BUFFERS: [ShapeBuffer; 6] = [
+    ShapeBuffer {
+        name: "shapes",
+        ty: "SDFShape",
+        accessor: "shape_at",
+        words: 2,
+        unpack: "SDFShape(bitcast<vec2<f32>>(w0.xy), bitcast<vec2<f32>>(w0.zw), w1.x, w1.y, w1.z)",
+    },
+    ShapeBuffer {
+        name: "styles",
+        ty: "SDFStyle",
+        accessor: "style_at",
+        words: 3,
+        unpack: "SDFStyle(bitcast<vec4<f32>>(w0), bitcast<vec4<f32>>(w1), bitcast<f32>(w2.x), w2.y)",
+    },
+    ShapeBuffer {
+        name: "rectangles",
+        ty: "SDFRectangle",
+        accessor: "rectangle_at",
+        words: 2,
+        unpack: "SDFRectangle(bitcast<vec4<f32>>(w0), bitcast<vec4<f32>>(w1))",
+    },
+    ShapeBuffer {
+        name: "bezier",
+        ty: "SDFBezier",
+        accessor: "bezier_at",
+        words: 2,
+        unpack: "SDFBezier(bitcast<vec2<f32>>(w0.xy), bitcast<vec2<f32>>(w0.zw), bitcast<vec2<f32>>(w1.xy), bitcast<f32>(w1.z))",
+    },
+    ShapeBuffer {
+        name: "glyphs",
+        ty: "SDFGlyph",
+        accessor: "glyph_at",
+        words: 1,
+        unpack: "SDFGlyph(w0.x, w0.y, w0.z, w0.w)",
+    },
+    ShapeBuffer {
+        name: "texture_rects",
+        ty: "SDFTextureRect",
+        accessor: "texture_rect_at",
+        words: 1,
+        unpack: "SDFTextureRect(bitcast<vec4<f32>>(w0))",
+    },
+];
+
+/// Builds the WGSL declaring the shape buffers (group 0, bindings 1 to 6) and their `*_at(i)`
+/// accessors, which is all main.wgsl uses to read them.
+///
+/// With storage buffers each is a runtime-sized struct array.  Otherwise (WebGL2) each is a
+/// uniform array of `vec4<u32>` words, unpacked by its accessor: ANGLE's Direct3D 11 backend,
+/// behind WebGL on Windows in every browser, takes minutes to link a shader that dynamically
+/// indexes large uniform arrays of *structs*, while plain vector arrays link in milliseconds.
+///
+/// # Parameters
+/// * storage: Whether the buffers are storage buffers.
+/// * capacities: How many elements each buffer holds, in [`SHAPE_BUFFERS`] order.
+fn shape_buffers_src(storage: bool, capacities: [u32; 6]) -> String {
+    SHAPE_BUFFERS
+        .iter()
+        .zip(capacities)
+        .enumerate()
+        .map(|(index, (buffer, capacity))| {
+            let ShapeBuffer { name, ty, accessor, words, unpack } = buffer;
+            let binding = index + 1;
+            if storage {
+                return format!(
+                    "@group(0) @binding({binding}) var<storage, read> {name}: array<{ty}>;\n\
+                     fn {accessor}(i: u32) -> {ty} {{ return {name}[i]; }}\n"
+                );
+            }
+
+            // read each word of the element, then rebuild the struct from them
+            let loads: String = (0..*words)
+                .map(|word| format!("    let w{word} = {name}[i * {words}u + {word}u];\n"))
+                .collect();
+            format!(
+                "@group(0) @binding({binding}) var<uniform> {name}: array<vec4<u32>, {}>;\n\
+                 fn {accessor}(i: u32) -> {ty} {{\n{loads}    return {unpack};\n}}\n",
+                capacity.max(1) * words
+            )
+        })
+        .collect()
 }
 
 /// Flattens the UI tree, uploads it, and draws a fullscreen SDF pass over the frame.
@@ -417,22 +504,25 @@ pub(crate) fn ui_render_pass(
         ..Default::default()
     };
 
-    if let Err(err) = draw_ui(&root, &graphics, &mut frame, &resources, &bindless_vault, &atlas_vault) {
+    if let Err(err) = draw_ui(root, &graphics, &mut frame, &resources, &bindless_vault, &atlas_vault) {
         log::error!("Failed to draw the UI: {err:#}");
     }
 }
 
 /// Uploads `root` and draws it over the frame.
 fn draw_ui(
-    root: &SDFElement,
+    root: SDFElement,
     graphics: &Graphics,
     frame: &mut Frame,
     resources: &UIRenderResources,
     bindless_vault: &BindlessArrayTextureVault,
     atlas_vault: &AtlasTextureVault,
 ) -> crate::anyhow::Result<()> {
-    // upload new UI tree
-    resources.shapes_buffer.update(graphics, root, &(resources, bindless_vault, atlas_vault))?;
+    // upload new UI tree, then keep it (and its chunks) until the next frame's is uploaded
+    resources.shapes_buffer.update(graphics, &root, &(resources, bindless_vault, atlas_vault))?;
+    if let Ok(mut previous) = resources.previous_frame.lock() {
+        *previous = Some(root);
+    }
 
     // setup render pass
     let mut pass = frame.init_pass(
